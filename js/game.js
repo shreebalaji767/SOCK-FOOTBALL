@@ -242,7 +242,7 @@ document.getElementById('pauseBtn').onclick=togglePause;document.getElementById(
 function loop(){
  requestAnimationFrame(loop);const dt=Math.min(clock.getDelta(),.04);
  if(!state.paused&&!state.over){
-  if(state.kickoff){state.kickoffDelay=Math.max(0,state.kickoffDelay-dt);if(state.kickoffDelay===0)restartPlay()}else{
+  if(state.kickoff){state.kickoffDelay=Math.max(0,state.kickoffDelay-dt);if(state.kickoffDelay===0){if(state.restartType==='KICKOFF')resetTeams();restartPlay()}}else{
    updateClock(dt);
    homeTeam.forEach(p=>{p.cooldown=Math.max(0,p.cooldown-dt);p.tackleCooldown=Math.max(0,p.tackleCooldown-dt)});
    awayTeam.forEach(p=>{p.cooldown=Math.max(0,p.cooldown-dt);p.tackleCooldown=Math.max(0,p.tackleCooldown-dt)});
