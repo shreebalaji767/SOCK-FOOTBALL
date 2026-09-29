@@ -331,7 +331,7 @@ function addStoppage(reason,count=1){
 }
 function calculatedAddedTime(){
   const r=state.addedReasons;
-  return THREE.MathUtils.clamp(Math.ceil(1+r.goals*.18+r.cards*.16+r.subs*.35+r.injuries*.75+r.restarts*.04),1,7);
+  return THREE.MathUtils.clamp(Math.ceil(1+r.goals*.18+r.cards*.16+r.subs*.35+r.injuries*.75+Math.min(r.restarts,10)*.04),1,7);
 }
 function triggerInjury(p,severity='contact'){
   if(!p||p.red||p.subbedOff||p.injured)return false;
@@ -521,7 +521,7 @@ function foulFor(tackler,target,kind='tackle'){
     comment('FOUL! PENALTY KICK.',true);
   }else awardFreeKick(tackler.home?'HOME':'AWAY',target.mesh.position.clone(),kind==='handball'?'DIRECT':'DIRECT');
   const chance=kind==='slide'?.18:.10;
-  if(Math.random()<chance){tackler.yellow++;state.stats[tackler.home?'HOME':'AWAY'].yellows++;comment(tackler.yellow>1?'SECOND YELLOW — SENT OFF.':'YELLOW CARD.',true);if(tackler.yellow>1){tackler.red=true;tackler.mesh.visible=false}}}
+  if(Math.random()<chance){tackler.yellow++;state.stats[tackler.home?'HOME':'AWAY'].yellows++; addStoppage('cards');comment(tackler.yellow>1?'SECOND YELLOW — SENT OFF.':'YELLOW CARD.',true);if(tackler.yellow>1){tackler.red=true;tackler.mesh.visible=false}}}
 function awardFreeKick(team,spot,type='DIRECT'){
   state.restartType=type==='INDIRECT'?'INDIRECT FREE KICK':'FREE KICK';
   state.restartTeam=team; state.restartSpot.set(THREE.MathUtils.clamp(spot.x,-FIELD_W/2+1,FIELD_W/2-1),.43,THREE.MathUtils.clamp(spot.z,-HALF+1,HALF-1));
@@ -629,7 +629,7 @@ function playerContacts(){
   for(let i=0;i<all.length;i++)for(let j=i+1;j<all.length;j++){
     const a=all[i],b=all[j],dx=a.mesh.position.x-b.mesh.position.x,dz=a.mesh.position.z-b.mesh.position.z,d=Math.hypot(dx,dz);
     if(d>0&&d<.82){
-      if(a.home!==b.home && (a.vel.length()+b.vel.length())>6 && Math.random()<.012) triggerInjury(Math.random()<.5?a:b,'contact');
+      if(a.home!==b.home && (a.vel.length()+b.vel.length())>6 && Math.random()<.0015) triggerInjury(Math.random()<.5?a:b,'contact');
       const push=(.82-d)/2;a.mesh.position.x+=dx/d*push;a.mesh.position.z+=dz/d*push;b.mesh.position.x-=dx/d*push;b.mesh.position.z-=dz/d*push;clampPlayer(a);clampPlayer(b)}
   }
 }
