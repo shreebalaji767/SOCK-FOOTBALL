@@ -114,7 +114,7 @@ function setActive(i){
 const ball=new THREE.Mesh(new THREE.SphereGeometry(.43,28,20),white);ball.position.set(0,.43,0);ball.castShadow=true;scene.add(ball);
 const ballVel=new THREE.Vector3();
 const ballSpin=new THREE.Vector3();
-let controlledTouch=0,shielding=false,slideTimer=0;
+let controlledTouch=0,shielding=false,slideTimer=0,shotCurve=0,matchMomentum=0;
 const held=new Set();
 let touchSprint=false;
 const clock=new THREE.Clock();
@@ -182,11 +182,16 @@ function shoot(p){
  const pressure=nearestOpponentDistance(p);
  const sprint=held.has('ShiftLeft')||held.has('ShiftRight')||touchSprint;
  const low=sprint&&pressure>2.5;
- const side=THREE.MathUtils.clamp(p.mesh.position.x*.18+(Math.random()-.5)*1.2,-5.8,5.8);
- const aim=new THREE.Vector3(side,0,goalZ(p)).sub(ball.position);
+ const goal=goalZ(p);
+ const goalHalf=GOAL*.5;
+ const angleToGoal=Math.abs(p.mesh.position.x)/(Math.abs(goal-p.mesh.position.z)+.01);
+ const central=Math.max(0,1-angleToGoal*2.4);
+ const targetX=THREE.MathUtils.clamp(-p.mesh.position.x*.12+(Math.random()-.5)*(1.8-central*.8),-goalHalf+1,goalHalf-1);
+ const aim=new THREE.Vector3(targetX,0,goal).sub(ball.position);
  const power=low?15.8:(pressure<2.2?13.5:16.8);
  kickBall(p,aim,power,'shoot');
- if(low)ballVel.y=-.05;
+ shotCurve=THREE.MathUtils.clamp(-p.mesh.position.x*.045+(Math.random()-.5)*.025,-.22,.22);
+ if(low)ballVel.y=-.05; else if(Math.abs(p.mesh.position.z-goal)>10)ballVel.y=.35;
 }
 function tacticalPressure(p){
  const opp=p.home?awayTeam:homeTeam;
@@ -221,6 +226,7 @@ function pass(p){
  const loft=held.has('ShiftLeft')||held.has('ShiftRight')||touchSprint;
  const best=chooseBestPass(p);
  if(best){
+  if(passingLaneBlocked(p,best,p.home?homeTeam:awayTeam)){const alternatives=(p.home?homeTeam:awayTeam).filter(q=>q!==p&&!q.red&&q.role!=='GK').sort((a,b)=>d2(a.mesh.position,ball.position)-d2(b.mesh.position,ball.position));best=alternatives.find(q=>!passingLaneBlocked(p,q,p.home?homeTeam:awayTeam))||best}
   const defenders=(p.home?awayTeam:homeTeam).filter(q=>!q.red).sort((a,b)=>p.home?b.mesh.position.z-a.mesh.position.z:a.mesh.position.z-b.mesh.position.z);
   const second=defenders[1]||defenders[0];
   const attackingGoal=p.home?-L/2:L/2;
@@ -323,11 +329,55 @@ function aiTeam(team,dt){
    const nearGoal=Math.abs(p.mesh.position.z-goalZ(p))<17;
    const pressure=nearestOpponentDistance(p);
    const pressureLevel=tacticalPressure(p);
-   if(nearGoal&&pressureLevel<.72&&Math.random()<.09)shoot(p);
-   else if(pressureLevel>.48&&Math.random()<.18)pass(p);
-   else if(!nearGoal&&Math.random()<.025)pass(p);
+   const wide=Math.abs(p.mesh.position.x)>7;
+   const boxReady=Math.abs(p.mesh.position.z-goalZ(p))<13;
+   if(boxReady&&pressureLevel<.72&&Math.random()<.13)shoot(p);
+   else if(wide&&pressureLevel<.65&&Math.random()<.10)cross(p);
+   else if(pressureLevel>.48&&Math.random()<.24)pass(p);
+   else if(!nearGoal&&Math.random()<.045)pass(p);
   }
  });
+}
+
+function passingLaneBlocked(from,to,team){
+ const a=from.mesh.position,b=to.mesh.position,ab=b.clone().sub(a);ab.y=0;
+ const len=ab.length();if(len<1)return false;
+ for(const o of (team===homeTeam?awayTeam:homeTeam)){
+  if(o.red)continue;
+  const ap=o.mesh.position.clone().sub(a);ap.y=0;
+  const t=THREE.MathUtils.clamp(ap.dot(ab)/(len*len),0,1);
+  const closest=a.clone().addScaledVector(ab,t);
+  if(closest.distanceTo(o.mesh.position)<.75&&closest.distanceTo(a)>1.1&&closest.distanceTo(b)>1.1)return true;
+ }
+ return false;
+}
+function supportRuns(team,dt){
+ const owner=nearest(team);
+ if(!owner||!hasBall(owner))return;
+ const attackDir=team===homeTeam?-1:1;
+ team.filter(p=>!p.red&&p!==owner&&p.role!=='GK').forEach(p=>{
+  const dist=d2(p.mesh.position,owner.mesh.position);
+  if(dist<35&&dist>4){
+   const run=new THREE.Vector3(p.mesh.position.x*.04,0,attackDir*1.4);
+   p.base.addScaledVector(run,dt);
+  }
+ });
+}
+function interceptAI(team,dt){
+ const opp=team===homeTeam?awayTeam:homeTeam;
+ const candidates=team.filter(p=>!p.red&&p.role!=='GK');
+ if(ballVel.length()<3)return;
+ let best=null,bestD=999;
+ candidates.forEach(p=>{
+  const to=ball.position.clone().addScaledVector(ballVel,.22).sub(p.mesh.position);to.y=0;
+  const d=to.length();
+  if(d<bestD){bestD=d;best=p}
+ });
+ if(best&&bestD<5.5){
+  const target=ball.position.clone().addScaledVector(ballVel,.18);target.y=0;
+  const v=target.sub(best.mesh.position);v.y=0;
+  if(v.lengthSq()>0.2){v.normalize();best.vel.lerp(v.multiplyScalar(best.speed*.92),Math.min(1,dt*4))}
+ }
 }
 
 function defensiveMarking(team,dt){
@@ -338,7 +388,9 @@ function defensiveMarking(team,dt){
   if(d===nearest(team)||d.role==='GK')return;
   const target=attackers[i%Math.max(1,attackers.length)];
   if(!target)return;
-  const mark=target.mesh.position.clone().sub(target.mesh.position.clone().sub(d.mesh.position).normalize().multiplyScalar(1.8));
+  const goal=goalZ(d);
+  const protect=new THREE.Vector3(target.mesh.position.x*.82,0,goal+(team===homeTeam?-8:8));
+  const mark=target.mesh.position.clone().lerp(protect,.28).sub(target.mesh.position.clone().sub(d.mesh.position).normalize().multiplyScalar(1.8));
   mark.y=0;
   const v=mark.sub(d.mesh.position);v.y=0;
   if(v.lengthSq()>1)v.normalize();
@@ -397,6 +449,12 @@ function restartPlay(){
   state.kickoff=false;state.penalty=false;return;
  }
  ball.position.copy(state.restartSpot);ballVel.set(0,0,0);state.kickoff=false;
+ const restartTeam=state.restartTeam==='HOME'?homeTeam:awayTeam,other=state.restartTeam==='HOME'?awayTeam:homeTeam;
+ const dir=state.restartTeam==='HOME'?-1:1;
+ if(state.restartType==='CORNER'){restartTeam.filter(p=>!p.red&&p.role!=='GK').forEach((p,i)=>{p.mesh.position.x=THREE.MathUtils.clamp((i-5)*1.25,-6,6);p.mesh.position.z=state.restartSpot.z-dir*(3+(i%3)*1.3)});}
+ if(state.restartType==='GOAL KICK'){const g=restartTeam.find(p=>p.role==='GK'&&!p.red);if(g)g.mesh.position.copy(state.restartSpot).add(new THREE.Vector3(0,0,dir*1.8));}
+ if(state.restartType==='FREE KICK'){restartTeam.filter(p=>!p.red&&p.role!=='GK').slice(0,5).forEach((p,i)=>p.mesh.position.lerp(state.restartSpot.clone().add(new THREE.Vector3((i-2)*1.3,0,dir*3)),.7));}
+
 }
 function kickoff(){
  state.restartType='KICKOFF';state.kickoff=true;state.restartTeam=state.half===1?'HOME':'AWAY';state.restartSpot.set(0,.43,0);
@@ -432,16 +490,17 @@ function goalkeeperAI(team,dt){
  if(d2(g.mesh.position,ball.position)<3.5&&ballVel.length()>10){
   g.vel.x=(ballVel.x>0?1:-1)*5;
  }
- if(d2(g.mesh.position,ball.position)<2.0&&ball.position.y<2.7&&g.cooldown<=0){
+ if(d2(g.mesh.position,ball.position)<2.8&&ball.position.y<3.2&&g.cooldown<=0){
    g.cooldown=.55;
-   const catchBall=ball.position.y<1.15 && ballVel.length()<11 && Math.random()<.48;
+   const reach=Math.abs(ball.position.x-g.mesh.position.x);const dive=reach>1.0||ball.position.y>1.5;
+   const catchBall=!dive&&ball.position.y<1.15 && ballVel.length()<11 && Math.random()<.58;
    if(catchBall){
     ball.position.copy(g.mesh.position);ball.position.y=1.15;ballVel.set(0,0,0);
     state.lastTouch=team===homeTeam?'HOME':'AWAY';
     comment(team===homeTeam?'Goalkeeper catches it.':'Keeper gathers the ball.',true);
    }else{
-    const clear=new THREE.Vector3((Math.random()-.5)*1.2,0,team===homeTeam?-1:1);
-    ballVel.copy(clear.normalize().multiplyScalar(9.5));
+    const clear=new THREE.Vector3((ball.position.x-g.mesh.position.x)*1.2,ball.position.y>1.5?2.2:0,team===homeTeam?-1:1);
+    ballVel.copy(clear.normalize().multiplyScalar(dive?11.5:9.5));
     state.lastTouch=team===homeTeam?'HOME':'AWAY';
     comment(team===homeTeam?'Goalkeeper parries it away!':'Goalkeeper makes the save!',true);
    }
@@ -503,6 +562,7 @@ function animatePlayers(dt){
 function ballPhysics(dt){
  ball.position.addScaledVector(ballVel,dt);
  ballVel.multiplyScalar(Math.pow(ball.position.y>.55?.72:.34,dt));
+ if(Math.abs(shotCurve)>0.01){const curveAxis=new THREE.Vector3(-ballVel.z,0,ballVel.x);if(curveAxis.lengthSq()>0.01)ballVel.addScaledVector(curveAxis.normalize(),shotCurve*dt);shotCurve*=Math.pow(.18,dt);}
  if(controlledTouch>0)controlledTouch-=dt;
  if(Math.abs(ballVel.x)+Math.abs(ballVel.z)<.15)ballVel.multiplyScalar(.5);
  ball.rotation.x+=ballVel.z*dt;ball.rotation.z-=ballVel.x*dt;
@@ -525,7 +585,7 @@ function updateClock(dt){
  if(state.minute>=45&&state.half===1){state.half=2;state.minute=45;state.seconds=0;document.getElementById('statusText').textContent='HALF-TIME';comment('HALF-TIME. Teams change ends.',true);state.kickoff=true;state.kickoffDelay=2.5;state.restartType='KICKOFF';state.restartTeam='AWAY';homeTeam.forEach(p=>{p.base.z*=-1});awayTeam.forEach(p=>{p.base.z*=-1});resetTeams();}
  if(state.minute>=90&&state.half===2&&!state.halfEnded){state.halfEnded=true;state.stoppage=matchStoppage();comment('90 minutes. Stoppage time: +'+state.stoppage+'.',true)}
  if(state.half===2&&state.minute>=90+state.stoppage){state.over=true;finish()}
- document.getElementById('timer').textContent=String(Math.min(90,state.minute)).padStart(2,'0')+':'+String(Math.floor(state.seconds)).padStart(2,'0');
+ const shownMinute=state.half===2?state.minute:Math.min(45,state.minute);document.getElementById('timer').textContent=String(shownMinute).padStart(2,'0')+':'+String(Math.floor(state.seconds)).padStart(2,'0');
  document.getElementById('halfLabel').textContent=state.half===1?'1ST HALF':'2ND HALF';
 }
 function finish(){
@@ -575,7 +635,7 @@ function loop(){
    awayTeam.forEach(p=>{p.cooldown=Math.max(0,p.cooldown-dt);p.tackleCooldown=Math.max(0,p.tackleCooldown-dt)});
    moveUser(dt);
    aiTeam(homeTeam,dt);aiTeam(awayTeam,dt);
-   defensiveMarking(homeTeam,dt);defensiveMarking(awayTeam,dt);
+   defensiveMarking(homeTeam,dt);defensiveMarking(awayTeam,dt);supportRuns(homeTeam,dt);supportRuns(awayTeam,dt);interceptAI(homeTeam,dt);interceptAI(awayTeam,dt);
    goalkeeperAI(homeTeam,dt);goalkeeperAI(awayTeam,dt);goalkeeperReaction(homeTeam);goalkeeperReaction(awayTeam);
    playerCollisions();
    aerialContact();
