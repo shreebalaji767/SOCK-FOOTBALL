@@ -99,7 +99,7 @@ function makeTeam(isHome){
  return formation.map((f,i)=>{
   const z=isHome?f.z:-f.z;
   const visual=createPlayer(shirt,shorts,i+1,f.role==='GK');
-  return {number:i+1,role:f.role,home:isHome,base:new THREE.Vector3(f.x,0,z),mesh:visual.group,label:visual.label,vel:new THREE.Vector3(),speed:f.role==='GK'?4.5:5.4,stamina:100,cooldown:0,tackleCooldown:0,yellow:0,red:false};
+  return {number:i+1,role:f.role,home:isHome,base:new THREE.Vector3(f.x,0,z),mesh:visual.group,label:visual.label,vel:new THREE.Vector3(),speed:f.role==='GK'?4.5:5.4,stamina:100,cooldown:0,tackleCooldown:0,yellow:0,red:false,goals:0,assists:0,touches:0,passes:0,shots:0,tackles:0};
  });
 }
 const homeTeam=makeTeam(true),awayTeam=makeTeam(false);
@@ -121,7 +121,7 @@ const clock=new THREE.Clock();
 
 const state={
  minute:0,seconds:0,half:1,score:[0,0],paused:false,over:false,kickoff:true,kickoffDelay:1,restartType:'KICKOFF',restartTeam:'HOME',
- restartSpot:new THREE.Vector3(0,.43,0),lastTouch:'HOME',lastComment:0,penalty:false,penaltyShooter:null,messageTimer:0
+ restartSpot:new THREE.Vector3(0,.43,0),lastTouch:'HOME',lastComment:0,penalty:false,penaltyShooter:null,messageTimer:0,stoppage:0,halfEnded:false,possession:{HOME:0,AWAY:0},touches:{HOME:0,AWAY:0}
 };
 
 function scoreUI(){document.getElementById('playerScore').textContent=state.score[0];document.getElementById('computerScore').textContent=state.score[1]}
@@ -142,7 +142,7 @@ function claimBall(p){
  if(p.role==='GK'&&Math.abs(p.mesh.position.z)<L/2-7)return false;
  ballVel.multiplyScalar(.18);
  ball.position.y=.43;
- state.lastTouch=p.home?'HOME':'AWAY';
+ state.lastTouch=p.home?'HOME':'AWAY';p.touches++;state.touches[p.home?'HOME':'AWAY']++;
  return true;
 }
 function forwardFor(p){return new THREE.Vector3(0,0,p.home?-1:1)}
@@ -169,7 +169,8 @@ function kickBall(p,dir,power,kind){
  dir.y=0;if(dir.lengthSq()<.01)dir.set(0,0,p.home?-1:1);dir.normalize();
  ballVel.copy(dir).multiplyScalar(power);ballVel.y=kind==='shoot'?Math.min(2.2,power*.16):Math.min(1.1,power*.08);
  p.cooldown=.25;state.lastTouch=p.home?'HOME':'AWAY';
- if(kind==='shoot')comment(p.home?'Home shoots!':'Away shoots!',true);
+ if(kind==='shoot'){p.shots++;comment(p.home?'Home shoots!':'Away shoots!',true)}
+ if(kind==='pass')p.passes++;
  if(kind==='pass')ballSpin.set(0,(Math.random()-.5)*1.8,0);
  return true;
 }
@@ -246,7 +247,7 @@ function tackle(p){
   const clean=Math.random()<.68;
   if(clean){
    ball.position.copy(p.mesh.position).addScaledVector(v,.72);ball.position.y=.43;
-   ballVel.copy(v).multiplyScalar(1.4);state.lastTouch=p.home?'HOME':'AWAY';
+   ballVel.copy(v).multiplyScalar(1.4);state.lastTouch=p.home?'HOME':'AWAY';p.tackles++;
    controlledTouch=.22;comment('Clean tackle — possession won.',true);
   }else{
    ballVel.addScaledVector(v,5);state.lastTouch=p.home?'HOME':'AWAY';comment('Tackle gets a touch.',true);
@@ -262,7 +263,8 @@ function moveUser(dt){
  const sprint=held.has('ShiftLeft')||held.has('ShiftRight')||touchSprint;
  if(v.lengthSq())me.stamina=Math.max(0,me.stamina-(sprint?12:2.5)*dt);else me.stamina=Math.min(100,me.stamina+6*dt);
  if(me.stamina<8&&sprint)comment('Player is exhausted.',true);
- me.vel.lerp(v.multiplyScalar(me.speed*(sprint&&me.stamina>2?1.38:1)),Math.min(1,dt*12));me.mesh.position.addScaledVector(me.vel,dt);clampField(me);
+ me.vel.lerp(v.multiplyScalar(me.speed*(sprint&&me.stamina>2?1.38:1)),Math.min(1,dt*12));const fatigue=me.stamina<25?.82:me.stamina<50?.93:1;
+ me.mesh.position.addScaledVector(me.vel,dt*fatigue);clampField(me);
  if(me.vel.lengthSq()>1)me.mesh.rotation.y=Math.atan2(me.vel.x,me.vel.z);
 }
 
@@ -272,6 +274,8 @@ function aiTeam(team,dt){
   if(p.red||p===me)return;
   let target=p.base.clone();const bd=d2(p.mesh.position,ball.position);
   const defending=team===homeTeam ? ball.position.z>6 : ball.position.z<-6;
+  const myScore=team===homeTeam?state.score[0]:state.score[1],oppScore=team===homeTeam?state.score[1]:state.score[0];
+  const trailing=myScore<oppScore&&state.minute>70,leading=myScore>oppScore&&state.minute>70;
   if(p===nearestPlayer) target.copy(ball.position);
   else if(p.role==='CB'||p.role==='LB'||p.role==='RB'){
    target.x+=THREE.MathUtils.clamp(ball.position.x*.10,-3.5,3.5);
@@ -281,6 +285,8 @@ function aiTeam(team,dt){
    target.x+=THREE.MathUtils.clamp(ball.position.x*.20,-5,5);
    target.z+=team===homeTeam?THREE.MathUtils.clamp(-ball.position.z*.12,-5,5):THREE.MathUtils.clamp(ball.position.z*.12,-5,5);
    if(!defending && (p.role==='LW'||p.role==='RW'||p.role==='ST')) target.z+=team===homeTeam?-3:3;
+   if(trailing&&(p.role==='LW'||p.role==='RW'||p.role==='ST')) target.z+=team===homeTeam?-5:5;
+   if(leading&&['CM','LM','RM'].includes(p.role)) target.z+=team===homeTeam?2:-2;
   }
   if(p.role==='GK'){target.x=THREE.MathUtils.clamp(ball.position.x,-5.5,5.5);target.z=team===homeTeam?L/2-2.2:-L/2+2.2;if(bd>18)target.copy(p.base)}
   const v=target.sub(p.mesh.position);v.y=0;if(v.lengthSq()>0.2)v.normalize();
@@ -314,8 +320,47 @@ function defensiveMarking(team,dt){
  });
 }
 
+function updateMatchStats(dt){
+ const nearHome=nearest(homeTeam),nearAway=nearest(awayTeam);
+ const h=hasBall(nearHome),a=hasBall(nearAway);
+ if(h)state.possession.HOME+=dt;
+ if(a)state.possession.AWAY+=dt;
+ const total=state.possession.HOME+state.possession.AWAY;
+ const hp=total?Math.round(state.possession.HOME/total*100):50;
+ const el=document.getElementById('commentaryText');
+ if(el&&state.messageTimer<=0){
+  el.title='Possession: HOME '+hp+'% · AWAY '+(100-hp)+'%';
+ }
+}
+function matchStoppage(){
+ let s=0;
+ [...homeTeam,...awayTeam].forEach(p=>{if(p.red)s+=.2;if(p.yellow)s+=.08});
+ return Math.min(6,Math.floor(s));
+}
+
+function ensureBench(team){
+ if(team.bench)return;
+ team.bench=[];
+ const shirt=team===homeTeam?home:away,shorts=team===homeTeam?homeDark:awayDark;
+ for(let i=0;i<5;i++){
+  const visual=createPlayer(shirt,shorts,12+i,false);
+  visual.group.visible=false;
+  team.bench.push({number:12+i,role:'SUB',home:team===homeTeam,mesh:visual.group,label:visual.label,vel:new THREE.Vector3(),speed:5.2,stamina:100,cooldown:0,tackleCooldown:0,yellow:0,red:false,base:new THREE.Vector3()});
+ }
+}
+function substitutions(team){
+ ensureBench(team);
+ const tired=team.find(p=>!p.red&&p.role!=='GK'&&p.stamina<18);
+ const sub=team.bench.find(p=>!p.used);
+ if(!tired||!sub)return;
+ sub.used=true;tired.mesh.visible=false;
+ sub.mesh.visible=true;sub.mesh.position.copy(tired.mesh.position);sub.role=tired.role;sub.base.copy(tired.base);
+ const idx=team.indexOf(tired);if(idx>=0)team[idx]=sub;
+ comment((team===homeTeam?'Home':'Away')+' substitution.',true);
+}
+
 function switchPlayer(){
- const list=homeTeam.map((p,i)=>({p,i})).filter(x=>!x.p.red).sort((a,b)=>d2(a.p.mesh.position,ball.position)-d2(b.p.mesh.position,ball.position));
+ const list=homeTeam.map((p,i)=>({p,i})).filter(x=>!x.p.red).sort((a,b)=>(d2(a.p.mesh.position,ball.position)+nearestOpponentDistance(a.p)*.12)-(d2(b.p.mesh.position,ball.position)+nearestOpponentDistance(b.p)*.12));
  const x=list.find(v=>v.i!==activeIndex)||list[0];setActive(x.i);comment('Player switched.',true);
 }
 function resetTeams(){homeTeam.forEach(p=>{if(!p.red){p.mesh.visible=true;p.mesh.position.copy(p.base);p.vel.set(0,0,0)}});awayTeam.forEach(p=>{if(!p.red){p.mesh.visible=true;p.mesh.position.copy(p.base);p.vel.set(0,0,0)}});setActive(9)}
@@ -351,10 +396,16 @@ function goalkeeperAI(team,dt){
  const g=team.find(p=>p.role==='GK'&&!p.red);if(!g)return;
  const danger=Math.abs(ball.position.z-goalZ(g))<9&&Math.abs(ball.position.x)<7;
  if(!danger)return;
+ const goalLine=team===homeTeam?L/2:-L/2;
+ const shooter=team===homeTeam?awayTeam:homeTeam;
+ const dangerPlayer=nearest(shooter);
  const targetX=THREE.MathUtils.clamp(ball.position.x,-6,6);
- g.mesh.position.x=THREE.MathUtils.lerp(g.mesh.position.x,targetX,Math.min(1,dt*5));
- const homeGoal=team===homeTeam?L/2:-L/2;
- g.mesh.position.z=THREE.MathUtils.lerp(g.mesh.position.z,homeGoal+(team===homeTeam?-1.8:1.8),Math.min(1,dt*5));
+ const shotBias=ballVel.length()>7?THREE.MathUtils.clamp(ballVel.x*.08,-1.8,1.8):0;
+ g.mesh.position.x=THREE.MathUtils.lerp(g.mesh.position.x,targetX+shotBias,Math.min(1,dt*7));
+ g.mesh.position.z=THREE.MathUtils.lerp(g.mesh.position.z,goalLine+(team===homeTeam?-1.8:1.8),Math.min(1,dt*6));
+ if(d2(g.mesh.position,ball.position)<3.5&&ballVel.length()>10){
+  g.vel.x=(ballVel.x>0?1:-1)*5;
+ }
  if(d2(g.mesh.position,ball.position)<2.0&&ball.position.y<2.7&&g.cooldown<=0){
    g.cooldown=.55;
    const catchBall=ball.position.y<1.15 && ballVel.length()<11 && Math.random()<.48;
@@ -368,6 +419,16 @@ function goalkeeperAI(team,dt){
     state.lastTouch=team===homeTeam?'HOME':'AWAY';
     comment(team===homeTeam?'Goalkeeper parries it away!':'Goalkeeper makes the save!',true);
    }
+ }
+}
+
+function goalkeeperReaction(team){
+ const g=team.find(p=>p.role==='GK'&&!p.red);if(!g)return;
+ if(d2(g.mesh.position,ball.position)<1.55&&ball.position.y<2.8&&ballVel.length()>6){
+  const toward=ballVel.clone();toward.y=0;
+  const side=new THREE.Vector3(-toward.z,0,toward.x).normalize();
+  const parry=side.multiplyScalar((Math.random()-.5)*5).add(toward.normalize().multiplyScalar(-3));
+  ballVel.lerp(parry,.65);ball.position.y=Math.max(.5,ball.position.y);
  }
 }
 
@@ -430,17 +491,21 @@ function ballPhysics(dt){
  if(ball.position.z>L/2&&Math.abs(ball.position.x)<GOAL/2&&ball.position.y<3){scoreGoal('AWAY');return}
 }
 
+let subTimer=0;
 function updateClock(dt){
- const rate=15;state.seconds+=dt*rate;
+ const rate=15;state.seconds+=dt*rate;subTimer+=dt;
  if(state.seconds>=60){state.seconds-=60;state.minute++}
+ if(subTimer>8){subTimer=0;substitutions(homeTeam);substitutions(awayTeam)}
  if(state.minute>=45&&state.half===1){state.half=2;state.minute=45;state.seconds=0;document.getElementById('statusText').textContent='HALF-TIME';comment('HALF-TIME. Teams change ends.',true);state.kickoff=true;state.kickoffDelay=2.5;state.restartType='KICKOFF';state.restartTeam='AWAY';homeTeam.forEach(p=>{p.base.z*=-1});awayTeam.forEach(p=>{p.base.z*=-1});resetTeams();}
- if(state.minute>=90&&state.half===2){state.over=true;finish()}
+ if(state.minute>=90&&state.half===2&&!state.halfEnded){state.halfEnded=true;state.stoppage=matchStoppage();comment('90 minutes. Stoppage time: +'+state.stoppage+'.',true)}
+ if(state.half===2&&state.minute>=90+state.stoppage){state.over=true;finish()}
  document.getElementById('timer').textContent=String(Math.min(90,state.minute)).padStart(2,'0')+':'+String(Math.floor(state.seconds)).padStart(2,'0');
  document.getElementById('halfLabel').textContent=state.half===1?'1ST HALF':'2ND HALF';
 }
 function finish(){
  document.getElementById('finalHome').textContent=state.score[0];document.getElementById('finalAway').textContent=state.score[1];
- document.getElementById('resultTitle').textContent='FULL TIME';document.getElementById('resultText').textContent=state.score[0]+' - '+state.score[1]+' · 90 minutes';
+ document.getElementById('resultTitle').textContent='FULL TIME';const total=state.possession.HOME+state.possession.AWAY;const hp=total?Math.round(state.possession.HOME/total*100):50;
+ document.getElementById('resultText').textContent=state.score[0]+' - '+state.score[1]+' · '+(90+state.stoppage)+' minutes · Possession '+hp+'% - '+(100-hp)+'%';
  document.getElementById('resultOverlay').classList.remove('hidden');
 }
 function togglePause(){if(state.over)return;state.paused=!state.paused;document.getElementById('pauseOverlay').classList.toggle('hidden',!state.paused)}
@@ -469,7 +534,7 @@ function loop(){
    moveUser(dt);
    aiTeam(homeTeam,dt);aiTeam(awayTeam,dt);
    defensiveMarking(homeTeam,dt);defensiveMarking(awayTeam,dt);
-   goalkeeperAI(homeTeam,dt);goalkeeperAI(awayTeam,dt);
+   goalkeeperAI(homeTeam,dt);goalkeeperAI(awayTeam,dt);goalkeeperReaction(homeTeam);goalkeeperReaction(awayTeam);
    playerCollisions();
    aerialContact();
    animatePlayers(dt);
@@ -477,6 +542,7 @@ function loop(){
    ballPhysics(dt);
   }
   if(state.messageTimer>0)state.messageTimer-=dt;
+  updateMatchStats(dt);
   if(!state.kickoff&&state.messageTimer<=0)document.getElementById('statusText').textContent='HOME '+me.role+' #'+me.number;
  }
  const activePos=me.mesh.position.clone();activePos.y=0;
