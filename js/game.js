@@ -127,6 +127,17 @@ function substitutionPanel(){
   const b=homeBench.map((p,i)=>((i===0?'7':i===1?'8':i===2?'9':i===3?'0':'-')+' '+p.name+' '+p.role)).join('<br>');
   el.innerHTML='<b>SUBSTITUTIONS '+subs.HOME+'/5</b><br>Selected: '+me.name+'<br>'+b+'<br><span style="opacity:.7">Press 7 8 9 0 -</span>';
 }
+
+function applyKitToMesh(p){
+  if(!p||!p.mesh)return;
+  const shirtMat=p.home?home:away;
+  const shortsMat=p.home?homeShort:awayShort;
+  p.mesh.children.forEach((child,i)=>{
+    if(i===0||i===5||i===6) child.material=shirtMat;
+    if(i===4) child.material=shortsMat;
+  });
+}
+
 function swapPlayerData(out,incoming){
   const keepMesh=out.mesh, keepBase=out.base;
   const keepId=out.id;
@@ -136,6 +147,7 @@ function swapPlayerData(out,incoming){
   keys.forEach(k=>out[k]=snapshot[k]);
   out.mesh=keepMesh; out.base=keepBase; out.id=keepId; out.bench=false;
   incoming.bench=true;
+  applyKitToMesh(out);
 }
 function substituteHome(slot){
   if(state.phase==='PLAY'){ state.pendingSub=slot; comment('Substitution requested — waiting for the next stoppage.',true); return; }
@@ -151,6 +163,7 @@ function substituteHome(slot){
   incoming.name=outgoingSnapshot.name; incoming.role=outgoingSnapshot.role; incoming.rating=outgoingSnapshot.rating;
   incoming.attributes=outgoingSnapshot.attributes; incoming.stamina=outgoingSnapshot.stamina;
   incoming.bench=true;
+  applyKitToMesh(outgoing);
   subs.HOME++; addStoppage('subs');
   comment('SUBSTITUTION: '+outgoingSnapshot.name+' OFF, '+outgoing.name+' ON.',true);
   updatePlayerCard(); substitutionPanel();
@@ -320,6 +333,47 @@ function applyTacticalShape(p,target){
 }
 
 const clock=new THREE.Clock();
+
+let cameraMode=0;
+let matchCenterVisible=false;
+const cameraModes=['BROADCAST','PLAYER CAM','TACTICAL'];
+function setCameraMode(mode){
+  cameraMode=(mode+cameraModes.length)%cameraModes.length;
+  comment('Camera: '+cameraModes[cameraMode],true);
+  const badge=document.getElementById('cameraBadge');
+  if(badge)badge.textContent=cameraModes[cameraMode]+' · V';
+}
+function createMatchCenter(){
+  let el=document.getElementById('matchCenter');
+  if(el)return el;
+  el=document.createElement('div');
+  el.id='matchCenter';
+  el.style.cssText='position:fixed;inset:0;z-index:45;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.58);backdrop-filter:blur(8px);color:#fff;font:600 12px Arial';
+  el.innerHTML='<div style="width:min(760px,calc(100vw - 24px));max-height:86vh;overflow:auto;padding:20px;border:1px solid rgba(255,255,255,.2);border-radius:18px;background:rgba(7,15,24,.96);box-shadow:0 25px 90px rgba(0,0,0,.5)"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><div><div style="font-size:22px;font-weight:900">MATCH CENTER</div><div id="mcScore" style="opacity:.65;margin-top:3px"></div></div><button id="mcClose" style="padding:8px 12px;border-radius:8px;border:1px solid #ffffff33;background:#ffffff12;color:#fff">CLOSE</button></div><div id="mcBody" style="margin-top:18px"></div></div>';
+  document.body.appendChild(el);
+  el.querySelector('#mcClose').onclick=()=>toggleMatchCenter(false);
+  return el;
+}
+function toggleMatchCenter(show){
+  matchCenterVisible=show===undefined?!matchCenterVisible:show;
+  const el=createMatchCenter();el.style.display=matchCenterVisible?'flex':'none';
+  if(matchCenterVisible)updateMatchCenter();
+}
+function updateMatchCenter(){
+  if(!matchCenterVisible)return;
+  const h=state.stats.HOME,a=state.stats.AWAY;
+  const totalPos=state.possession.HOME+state.possession.AWAY;
+  const hp=totalPos?Math.round(state.possession.HOME/totalPos*100):50;
+  const row=(label,x,y)=>'<tr><td>'+label+'</td><td>'+x+'</td><td>'+y+'</td></tr>';
+  document.getElementById('mcScore').textContent='HOME '+state.score[0]+' — '+state.score[1]+' AWAY · '+(state.half===1?'1ST HALF':'2ND HALF')+' · '+document.getElementById('timer').textContent;
+  document.getElementById('mcBody').innerHTML='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px"><div style="padding:14px;border-radius:12px;background:#ffffff08"><div style="opacity:.55">POSSESSION</div><b style="font-size:24px">'+hp+'% — '+(100-hp)+'%</b></div><div style="padding:14px;border-radius:12px;background:#ffffff08"><div style="opacity:.55">FORMATION / TACTIC</div><b style="font-size:15px">'+formationModes[formationMode].name+' · '+tacticalModes[tacticalMode].name+'</b></div></div><table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:8px">STAT</th><th>HOME</th><th>AWAY</th></tr></thead><tbody>'+row('Shots',h.shots,a.shots)+row('Shots on target',h.shotsOn,a.shotsOn)+row('Passes',h.passes,a.passes)+row('Tackles',h.tackles,a.tackles)+row('Fouls',h.fouls,a.fouls)+row('Corners',h.corners,a.corners)+row('Offsides',h.offsides,a.offsides)+row('Yellow cards',h.yellows,a.yellows)+'</tbody></table><div style="margin-top:16px;opacity:.62">Press M to close. V changes camera. The match itself continues while this panel is open.</div>';
+}
+function createCameraBadge(){
+  const b=document.createElement('div');b.id='cameraBadge';b.textContent='BROADCAST · V';
+  b.style.cssText='position:fixed;right:14px;top:92px;z-index:21;padding:6px 9px;border-radius:8px;background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.16);color:#fff;font:700 10px Arial;pointer-events:none;backdrop-filter:blur(5px)';
+  document.body.appendChild(b);
+}
+
 
 function comment(t,force=false){
   const now=performance.now();
@@ -821,6 +875,8 @@ function action(code){
   if(code==='KeyQ')switchPlayer();
   if(code==='KeyP')togglePause();
   if(code==='KeyR')shielding=!shielding;
+  if(code==='KeyV')setCameraMode(cameraMode+1);
+  if(code==='KeyM')toggleMatchCenter();
   if(code==='Digit1')setTactic(0);
   if(code==='Digit2')setTactic(1);
   if(code==='Digit3')setTactic(2);
@@ -909,9 +965,11 @@ function loop(){
   }
   const focus=ball.position.clone().lerp(me.mesh.position, .25);
   const portrait=innerWidth<700, landscape=innerWidth/innerHeight>1.15;
-  const camY=portrait?34:landscape?29:32, camZ=portrait?28:landscape?25:28;
-  camera.position.lerp(new THREE.Vector3(focus.x*.08,camY,camZ+focus.z*.08),Math.min(1,dt*2.2));
-  camera.lookAt(focus.x*.08,0,focus.z*.08);
+  let camY=portrait?34:landscape?29:32, camZ=portrait?28:landscape?25:28, camX=focus.x*.08, lookY=0;
+  if(cameraMode===1){camY=portrait?19:16;camZ=portrait?17:14;camX=me.mesh.position.x*.18;lookY=.8;}
+  if(cameraMode===2){camY=portrait?43:38;camZ=portrait?34:32;camX=focus.x*.12;lookY=0;}
+  camera.position.lerp(new THREE.Vector3(camX,camY,camZ+focus.z*.08),Math.min(1,dt*2.2));
+  camera.lookAt(camX*.45,lookY,focus.z*.08);
   renderer.render(scene,camera);
 }
 
@@ -924,7 +982,8 @@ function updateAnalytics(){
   const h=homeTeam.reduce((a,p)=>a+p.touches,0), aw=awayTeam.reduce((a,p)=>a+p.touches,0);
   const hs=homeTeam.reduce((a,p)=>a+p.shots,0), as=awayTeam.reduce((a,p)=>a+p.shots,0);
   const hp=state.possession.HOME+state.possession.AWAY>0?Math.round(state.possession.HOME/(state.possession.HOME+state.possession.AWAY)*100):50;
-  analytics.innerHTML='MATCH DATA<br>GK HOLD '+(ballOwner&&ballOwner.role==='GK'?state.gkHoldTimer.toFixed(1)+'s':'—')+'<br>POSSESSION '+hp+'% — '+(100-hp)+'%<br>SHOTS '+hs+' — '+as+'<br>TOUCHES '+h+' — '+aw+'<br>TACTIC '+tacticalModes[tacticalMode].name;
+  analytics.innerHTML='MATCH DATA<br>GK HOLD '+(ballOwner&&ballOwner.role==='GK'?state.gkHoldTimer.toFixed(1)+'s':'—')+'<br>POSSESSION '+hp+'% — '+(100-hp)+'%<br>SHOTS '+hs+' — '+as+'<br>TOUCHES '+h+' — '+aw+'<br>TACTIC '+tacticalModes[tacticalMode].name+'<br><span style="opacity:.6">M MATCH CENTER · V CAMERA</span>';
+  updateMatchCenter();
 }
 
 const playerCard=document.createElement('div');
@@ -932,6 +991,8 @@ playerCard.id='playerCard';
 playerCard.style.cssText='position:fixed;left:14px;bottom:14px;z-index:20;padding:10px 12px;min-width:220px;border:1px solid rgba(255,255,255,.22);border-radius:10px;background:rgba(0,0,0,.58);color:#fff;font:600 12px Arial;line-height:1.5;backdrop-filter:blur(5px);pointer-events:none';
 document.body.appendChild(playerCard);
 document.getElementById('statusText').textContent='KICK-OFF';
+createMatchCenter();
+createCameraBadge();
 substitutionPanel();
 applyFormation(0,false);
 setTimeout(()=>comment('Tactics: 1 Balanced · 2 Attacking · 3 Defensive · 4/5/6 Formation',true),900);
