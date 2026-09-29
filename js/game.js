@@ -88,7 +88,7 @@ let touchSprint=false;
 const clock=new THREE.Clock();
 
 const state={
- minute:0,seconds:0,half:1,score:[0,0],paused:false,over:false,kickoff:true,restartType:'KICKOFF',restartTeam:'HOME',
+ minute:0,seconds:0,half:1,score:[0,0],paused:false,over:false,kickoff:true,kickoffDelay:1,restartType:'KICKOFF',restartTeam:'HOME',
  restartSpot:new THREE.Vector3(0,.43,0),lastTouch:'HOME',lastComment:0,penalty:false,penaltyShooter:null,messageTimer:0
 };
 
@@ -117,7 +117,13 @@ function pass(p){
  const team=p.home?homeTeam:awayTeam;let best=null,bs=-999;
  const facing=new THREE.Vector3(Math.sin(p.mesh.rotation.y),0,Math.cos(p.mesh.rotation.y));
  for(const q of team){if(q===p||q.red)continue;const v=q.mesh.position.clone().sub(p.mesh.position);v.y=0;const d=v.length();if(d<2||d>18)continue;const s=v.normalize().dot(facing)*8-d*.12;if(s>bs){bs=s;best=q}}
- if(best){kickBall(p,best.mesh.position.clone().sub(ball.position),9,'pass');comment(p.home?'Pass completed.':'Away passes.',true)}
+ if(best){
+  const defenders=(p.home?awayTeam:homeTeam).filter(q=>!q.red).sort((a,b)=>p.home?b.mesh.position.z-a.mesh.position.z:a.mesh.position.z-b.mesh.position.z);
+  const second=defenders[1]||defenders[0];
+  const off=p.home?(best.mesh.position.z<ball.position.z&&best.mesh.position.z<second.mesh.position.z):(best.mesh.position.z>ball.position.z&&best.mesh.position.z>second.mesh.position.z);
+  if(off){state.restartType='FREE KICK';state.restartTeam=p.home?'AWAY':'HOME';state.restartSpot.copy(best.mesh.position);state.restartSpot.y=.43;state.kickoff=true;comment('Offside. Free kick to the defence.',true);return}
+  kickBall(p,best.mesh.position.clone().sub(ball.position),9,'pass');comment(p.home?'Pass completed.':'Away passes.',true)
+ }
 }
 function foul(v,a){
  const attackingTeam=a.home?'HOME':'AWAY';
@@ -207,7 +213,7 @@ function ballPhysics(dt){
 function updateClock(dt){
  const rate=15;state.seconds+=dt*rate;
  if(state.seconds>=60){state.seconds-=60;state.minute++}
- if(state.minute>=45&&state.half===1){state.half=2;state.minute=45;state.seconds=0;document.getElementById('statusText').textContent='HALF-TIME';comment('HALF-TIME. Teams change ends.',true);state.kickoff=true;state.restartType='KICKOFF';state.restartTeam='AWAY';setTimeout(()=>{if(!state.over){state.kickoff=true;resetTeams();ball.position.set(0,.43,0);ballVel.set(0,0,0)}},1400)}
+ if(state.minute>=45&&state.half===1){state.half=2;state.minute=45;state.seconds=0;document.getElementById('statusText').textContent='HALF-TIME';comment('HALF-TIME. Teams change ends.',true);state.kickoff=true;state.kickoffDelay=1.5;state.restartType='KICKOFF';state.restartTeam='AWAY';}
  if(state.minute>=90&&state.half===2){state.over=true;finish()}
  document.getElementById('timer').textContent=String(Math.min(90,state.minute)).padStart(2,'0')+':'+String(Math.floor(state.seconds)).padStart(2,'0');
  document.getElementById('halfLabel').textContent=state.half===1?'1ST HALF':'2ND HALF';
@@ -236,7 +242,7 @@ document.getElementById('pauseBtn').onclick=togglePause;document.getElementById(
 function loop(){
  requestAnimationFrame(loop);const dt=Math.min(clock.getDelta(),.04);
  if(!state.paused&&!state.over){
-  if(state.kickoff){restartPlay()}else{
+  if(state.kickoff){state.kickoffDelay=Math.max(0,state.kickoffDelay-dt);if(state.kickoffDelay===0)restartPlay()}else{
    updateClock(dt);
    homeTeam.forEach(p=>{p.cooldown=Math.max(0,p.cooldown-dt);p.tackleCooldown=Math.max(0,p.tackleCooldown-dt)});
    awayTeam.forEach(p=>{p.cooldown=Math.max(0,p.cooldown-dt);p.tackleCooldown=Math.max(0,p.tackleCooldown-dt)});
