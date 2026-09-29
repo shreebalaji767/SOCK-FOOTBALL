@@ -53,50 +53,25 @@ function createPlayer(shirt,shorts){
  for(const x of[-.75,.75]){const arm=new THREE.Mesh(new THREE.CylinderGeometry(.11,.13,.85,12),shirt);arm.position.set(x,1.7,0);arm.rotation.z=x<0?.22:-.22;arm.castShadow=true;g.add(arm)}
  scene.add(g);return g;
 }
-const me={mesh:createPlayer(home,homeDark),vel:new THREE.Vector3(),speed:6.1,kickCooldown:0};
-const cpu={mesh:createPlayer(away,awayDark),vel:new THREE.Vector3(),speed:5.3,kickCooldown:0,target:new THREE.Vector3(),think:0};
-me.mesh.position.set(0,0,15);cpu.mesh.position.set(0,0,-15);
-
+const homeSpots=[[-7,15],[0,15],[7,15],[-10,7],[-3,7],[3,7],[10,7],[-9,-2],[-3,-2],[3,-2],[9,-2],[-6,-9],[0,-9],[6,-9]];
+const awaySpots=homeSpots.map(([x,z])=>[x,-z]);
+const homeTeam=homeSpots.map((p,i)=>({mesh:createPlayer(home,homeDark),vel:new THREE.Vector3(),speed:5,kickCooldown:0,base:new THREE.Vector3(p[0],0,p[1])}));
+const awayTeam=awaySpots.map((p,i)=>({mesh:createPlayer(away,awayDark),vel:new THREE.Vector3(),speed:4.8,kickCooldown:0,base:new THREE.Vector3(p[0],0,p[1])}));
+homeTeam.forEach(p=>p.mesh.position.copy(p.base));awayTeam.forEach(p=>p.mesh.position.copy(p.base));
+let activeIndex=9;let me=homeTeam[activeIndex];
+function setActive(i){activeIndex=(i+homeTeam.length)%homeTeam.length;me=homeTeam[activeIndex];homeTeam.forEach((p,n)=>p.mesh.scale.setScalar(n===activeIndex?1.14:1));document.getElementById('statusText').textContent='HOME PLAYER '+(activeIndex+1)}
 const ball=new THREE.Mesh(new THREE.SphereGeometry(.48,28,20),white);ball.position.set(0,.5,0);ball.castShadow=true;scene.add(ball);
 const ballVelocity=new THREE.Vector3();
-
-const state={time:120,score:[0,0],paused:false,over:false,kickoffTimer:0,goalFlash:0,lastComment:0};
-
-function comment(text,force=false){const now=performance.now();if(!force&&now-state.lastComment<1000)return;document.getElementById('commentaryText').textContent=text;state.lastComment=now}
-function clampPlayer(p){p.mesh.position.x=THREE.MathUtils.clamp(p.mesh.position.x,-W/2+1,-0+W/2-1);p.mesh.position.z=THREE.MathUtils.clamp(p.mesh.position.z,-L/2+1,L/2-1)}
-function kick(player,dir,power=11){
- if(player.kickCooldown>0)return;
- const dist=player.mesh.position.distanceTo(ball.position);if(dist>2.25)return;
- player.kickCooldown=.34;dir.y=0;if(dir.lengthSq()===0)dir.set(0,0,player===me?-1:1);dir.normalize();
- ballVelocity.addScaledVector(dir,power);
- comment(player===me?'Good strike. Keep the pressure on.':'The away side clears the ball.',true);
-}
-function playerMovement(dt){
- const x=(held.has('KeyD')||held.has('ArrowRight'))-(held.has('KeyA')||held.has('ArrowLeft'));
- const z=(held.has('KeyS')||held.has('ArrowDown'))-(held.has('KeyW')||held.has('ArrowUp'));
- const v=new THREE.Vector3(x,0,z);if(v.lengthSq())v.normalize();
- const sprint=held.has('ShiftLeft')||held.has('ShiftRight')||touchSprint;
- v.multiplyScalar(me.speed*(sprint?1.55:1));
- me.vel.lerp(v,Math.min(1,dt*11));me.mesh.position.addScaledVector(me.vel,dt);clampPlayer(me);
- if(me.vel.lengthSq()>1)me.mesh.rotation.y=Math.atan2(me.vel.x,me.vel.z);
-}
-function cpuAI(dt){
- cpu.think-=dt;const d=cpu.mesh.position.distanceTo(ball.position);
- if(cpu.think<=0){cpu.think=.18+Math.random()*.2;
-   if(d<2.8)cpu.target.copy(ball.position);
-   else cpu.target.set(THREE.MathUtils.clamp(ball.position.x,-10,10),0,THREE.MathUtils.clamp(ball.position.z,-L/2+3,-2));
- }
- const v=cpu.target.clone().sub(cpu.mesh.position);v.y=0;if(v.lengthSq())v.normalize();v.multiplyScalar(cpu.speed);
- cpu.vel.lerp(v,Math.min(1,dt*7));cpu.mesh.position.addScaledVector(cpu.vel,dt);clampPlayer(cpu);
- if(cpu.vel.lengthSq()>1)cpu.mesh.rotation.y=Math.atan2(cpu.vel.x,cpu.vel.z);
- if(d<2.15&&cpu.kickCooldown<=0){
-   const target=new THREE.Vector3((Math.random()-.5)*5,0,L/2+4).sub(ball.position);
-   kick(cpu,target,Math.random()<.3?13:10);
- }
-}
+const state={time:180,score:[0,0],paused:false,over:false,kickoffTimer:1.2,goalFlash:0,lastComment:0};
+function comment(text,force=false){const now=performance.now();if(!force&&now-state.lastComment<800)return;document.getElementById('commentaryText').textContent=text;state.lastComment=now}
+function clampPlayer(p){p.mesh.position.x=THREE.MathUtils.clamp(p.mesh.position.x,-W/2+1,W/2-1);p.mesh.position.z=THREE.MathUtils.clamp(p.mesh.position.z,-L/2+1,L/2-1)}
+function kick(player,dir,power=11){if(player.kickCooldown>0)return;if(player.mesh.position.distanceTo(ball.position)>2.2)return;player.kickCooldown=.3;dir.y=0;if(dir.lengthSq()===0)dir.set(0,0,player===me?-1:1);dir.normalize();ballVelocity.addScaledVector(dir,power);comment(player===me?'Shot!':'Away team plays forward.',true)}
+function playerMovement(dt){const x=(held.has('KeyD')||held.has('ArrowRight'))-(held.has('KeyA')||held.has('ArrowLeft'));const z=(held.has('KeyS')||held.has('ArrowDown'))-(held.has('KeyW')||held.has('ArrowUp'));const v=new THREE.Vector3(x,0,z);if(v.lengthSq())v.normalize();const sprint=held.has('ShiftLeft')||held.has('ShiftRight')||touchSprint;v.multiplyScalar(me.speed*(sprint?1.55:1));me.vel.lerp(v,Math.min(1,dt*11));me.mesh.position.addScaledVector(me.vel,dt);clampPlayer(me);if(me.vel.lengthSq()>1)me.mesh.rotation.y=Math.atan2(me.vel.x,me.vel.z)}
+function teamAI(team,dt,isHome){team.forEach((p,i)=>{if(isHome&&i===activeIndex)return;const d=p.mesh.position.distanceTo(ball.position);let target=p.base.clone();const nearest=team.reduce((a,b)=>a.mesh.position.distanceTo(ball.position)<b.mesh.position.distanceTo(ball.position)?a:b);if(p===nearest&&d<15)target.copy(ball.position);else if(d<7)target.lerp(ball.position,.22);const v=target.sub(p.mesh.position);v.y=0;if(v.lengthSq())v.normalize();v.multiplyScalar(p.speed*(p===nearest?1.2:.75));p.vel.lerp(v,Math.min(1,dt*5));p.mesh.position.addScaledVector(p.vel,dt);clampPlayer(p);if(p.vel.lengthSq()>1)p.mesh.rotation.y=Math.atan2(p.vel.x,p.vel.z);if(p===nearest&&d<2.15&&p.kickCooldown<=0){const goalZ=isHome?-L/2:L/2;kick(p,new THREE.Vector3((Math.random()-.5)*4,0,goalZ).sub(ball.position),11)}})}
+function switchPlayer(){let best=0,dist=Infinity;homeTeam.forEach((p,i)=>{const d=p.mesh.position.distanceTo(ball.position);if(d<dist){dist=d;best=i}});setActive(best);comment('Switched to Home Player '+(best+1),true)}
 function resetAfterGoal(){
  ball.position.set((Math.random()-.5)*2,.5,0);ballVelocity.set(0,0,0);
- me.mesh.position.set(0,0,10);cpu.mesh.position.set(0,0,-10);state.kickoffTimer=1.2;
+ homeTeam.forEach(p=>p.mesh.position.copy(p.base));awayTeam.forEach(p=>p.mesh.position.copy(p.base));setActive(9);state.kickoffTimer=1.2;
 }
 function ballPhysics(dt){
  ball.position.addScaledVector(ballVelocity,dt);
@@ -126,7 +101,7 @@ function resize(){const w=canvas.clientWidth,h=canvas.clientHeight;renderer.setS
 addEventListener('resize',resize);resize();
 
 const held=new Set();let touchSprint=false;
-addEventListener('keydown',e=>{if(e.code==='KeyP'){togglePause();return}if(e.code==='Space'){e.preventDefault();kick(me,new THREE.Vector3((ball.position.x-me.mesh.position.x)*.5,0,-1),held.has('ShiftLeft')||held.has('ShiftRight')?14:11)}held.add(e.code)});
+addEventListener('keydown',e=>{if(e.code==='KeyP'){togglePause();return}if(e.code==='KeyQ'){switchPlayer();return}if(e.code==='Space'){e.preventDefault();kick(me,new THREE.Vector3((ball.position.x-me.mesh.position.x)*.5,0,-1),held.has('ShiftLeft')||held.has('ShiftRight')?14:11)}held.add(e.code)});
 addEventListener('keyup',e=>held.delete(e.code));
 document.querySelectorAll('[data-key]').forEach(b=>{const k=b.dataset.key;b.addEventListener('pointerdown',e=>{e.preventDefault();held.add(k)});['pointerup','pointercancel','pointerleave'].forEach(ev=>b.addEventListener(ev,()=>held.delete(k)))});
 document.getElementById('shootMobile').onpointerdown=()=>kick(me,new THREE.Vector3((ball.position.x-me.mesh.position.x)*.5,0,-1),touchSprint?14:11);
@@ -147,8 +122,8 @@ function loop(){
  requestAnimationFrame(loop);const dt=Math.min(clock.getDelta(),.04);
  if(!state.paused&&!state.over){
    if(state.kickoffTimer>0)state.kickoffTimer-=dt;
-   else{state.time=Math.max(0,state.time-dt);playerMovement(dt);cpuAI(dt);ballPhysics(dt)}
-   me.kickCooldown=Math.max(0,me.kickCooldown-dt);cpu.kickCooldown=Math.max(0,cpu.kickCooldown);
+   else{state.time=Math.max(0,state.time-dt);playerMovement(dt);teamAI(homeTeam,dt,true);teamAI(awayTeam,dt,false);ballPhysics(dt)}
+   homeTeam.forEach(p=>p.kickCooldown=Math.max(0,p.kickCooldown));awayTeam.forEach(p=>p.kickCooldown=Math.max(0,p.kickCooldown));
    if(state.time===0)finish();
    document.getElementById('timer').textContent=Math.floor(state.time/60).toString().padStart(2,'0')+':'+Math.floor(state.time%60).toString().padStart(2,'0');
    if(state.kickoffTimer>0)document.getElementById('statusText').textContent='KICK-OFF';
