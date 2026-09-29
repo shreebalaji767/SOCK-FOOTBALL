@@ -903,7 +903,6 @@ function loop(){
     }else if(state.phase==='RESTART'){
       state.messageTimer=Math.max(0,state.messageTimer-dt);
       state.restartTimer=Math.max(0,state.restartTimer-dt);
-      if(state.restartType==='FREE KICK' && !state.wallReady)setupFreeKickWall(teamOf(me).find(p=>p.home=== (state.restartTeam==='HOME')) || nearest(state.restartTeam==='HOME'?homeTeam:awayTeam));
       if(state.restartType==='PENALTY')restart(); else restart();
     }
     drawRadar();animatePlayers();updateAnalytics();
