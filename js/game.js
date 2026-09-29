@@ -595,7 +595,7 @@ function updateClock(dt){
   // Six match seconds pass per real second, keeping a full 90-minute match playable in about 15 minutes.
   state.seconds+=dt*6;
   if(state.seconds>=60){state.seconds-=60;state.minute++}
-  if(state.minute===45&&state.half===1){
+  if(state.minute===45&&state.half===1&&state.phase!=='HALFTIME'){
     state.halfStoppage=Math.min(6,Math.ceil(state.messageTimer+.5));
     state.phase='HALFTIME';
     state.halftimeTimer=5;
