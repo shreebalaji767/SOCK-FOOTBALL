@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>🧦⚽ Sock Football 3D</title><link rel="stylesheet" href="./css/style.css"></head>
+<body><div id="loading"><div class="loader">🧦⚽</div><div>WASHING THE SOCKS...</div></div>
+<main id="game-shell"><header class="topbar"><div class="brand">🧦⚽ SOCK FOOTBALL <span>3D</span></div><div class="score"><b id="playerScore">0</b><i>:</i><b id="computerScore">0</b></div><div class="match-info"><span id="timer">02:00</span><button id="pauseBtn">Ⅱ</button></div></header>
+<section id="game-view"><canvas id="gameCanvas"></canvas><div class="hud"><div class="status"><span class="dot"></span><span id="statusText">THE MATCH IS LEGALLY HAPPENING</span></div><div id="commentary" class="commentary"><div class="commentary-title">🎙️ CHICKEN COMMENTATOR</div><div id="commentaryText">WELCOME TO FOOTBALL. THE BALL IS A SOCK. NOBODY OBJECTED.</div></div><div class="controls-help">WASD / ARROWS · SPACE KICK · SHIFT SPRINT · P PAUSE</div></div>
+<div id="mobileControls" class="mobile-controls"><div class="pad"><button data-key="ArrowUp">▲</button><div><button data-key="ArrowLeft">◀</button><button data-key="ArrowDown">▼</button><button data-key="ArrowRight">▶</button></div></div><div class="action-pad"><button id="kickMobile">🦶 KICK</button><button id="sprintMobile">💨 RUN</button></div></div>
+<div id="pauseOverlay" class="overlay hidden"><div class="panel"><h1>MATCH PAUSED</h1><p>The computer is pretending this was intentional.</p><button id="resumeBtn">RESUME</button></div></div>
+<div id="resultOverlay" class="overlay hidden"><div class="panel"><div class="big-emoji">🧦</div><h1 id="resultTitle">FULL SOCK TIME</h1><p id="resultText"></p><button id="restartBtn">PLAY AGAIN</button></div></div></section></main>
+<script type="module" src="./js/game.js"></script></body></html>
