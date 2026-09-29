@@ -3,55 +3,45 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-<meta name="theme-color" content="#061b12">
-<title>🧦⚽ SOCK FOOTBALL — 3D</title>
+<meta name="theme-color" content="#071b10">
+<title>3D Football</title>
 <link rel="stylesheet" href="./css/style.css">
 </head>
 <body>
-<div class="loading" aria-live="polite"><div class="loading-card"><div class="loader">🧦⚽</div><strong>SOCK FOOTBALL</strong><span>Inflating the completely normal sock ball...</span></div></div>
+<div class="loading" id="loading"><div><div class="ball-loader">⚽</div><strong>3D FOOTBALL</strong><span>Loading match...</span></div></div>
 
 <main id="game-shell">
 <header class="topbar">
-  <div class="brand"><span class="brand-icon">🧦</span><div><strong>SOCK FOOTBALL</strong><small>THE BEAUTIFUL GAME, BUT LAUNDRY</small></div></div>
-  <div class="scoreboard" aria-label="Score">
-    <div class="team"><span class="team-dot home"></span><b>YOU</b></div>
-    <div class="score"><b id="playerScore">0</b><span>–</span><b id="computerScore">0</b></div>
-    <div class="team away"><b>CPU</b><span class="team-dot away-dot"></span></div>
+  <div class="brand"><div class="crest home-crest">H</div><div><strong>3D FOOTBALL</strong><small>PLAYER vs COMPUTER</small></div></div>
+  <div class="scoreboard">
+    <span class="team-name">HOME</span>
+    <strong id="playerScore">0</strong><span class="dash">-</span><strong id="computerScore">0</strong>
+    <span class="team-name">AWAY</span>
   </div>
-  <div class="match-info"><span class="live"><i></i> LIVE</span><strong id="timer">02:00</strong><button id="pauseBtn" aria-label="Pause">Ⅱ</button></div>
+  <div class="match-info"><span class="live"><i></i> LIVE</span><strong id="timer">02:00</strong><button id="pauseBtn">Ⅱ</button></div>
 </header>
 
 <section class="game-view">
   <canvas id="gameCanvas"></canvas>
-
-  <div class="pitch-labels" aria-hidden="true">
-    <span class="north">CPU GOAL 🧦</span>
-    <span class="south">YOUR GOAL 🧦</span>
-  </div>
-
   <div class="hud">
-    <div class="status"><span class="dot"></span><strong>MATCH LIVE</strong><span id="statusText">THE SOCKS ARE PLAYING FOOTBALL</span><b id="comboText" class="combo"></b></div>
-    <div class="commentary">
-      <div class="commentary-title">🐔 CHICKEN COMMENTATOR</div>
-      <div id="commentaryText">WELCOME TO SOCK FOOTBALL. THE BALL IS A SOCK. THIS IS COMPLETELY NORMAL.</div>
-    </div>
-    <div class="desktop-controls"><b>MOVE</b> WASD / ARROWS <b>KICK</b> SPACE / CLICK <b>SPRINT</b> SHIFT <b>TAUNT</b> T <b>PAUSE</b> P</div>
+    <div class="status"><span class="dot"></span><strong id="statusText">MATCH LIVE</strong></div>
+    <div class="commentary"><b>COMMENTARY</b><span id="commentaryText">Kick-off. Play the ball forward.</span></div>
+    <div class="desktop-controls"><b>MOVE</b> WASD / ARROWS <b>SHOOT</b> SPACE / CLICK <b>SPRINT</b> SHIFT <b>PAUSE</b> P</div>
   </div>
 
   <div class="mobile-controls">
-    <div class="mobile-hint">DRAG / TAP TO PLAY</div>
-    <div class="pad" aria-label="Movement controls">
+    <div class="pad">
       <button data-key="ArrowUp">▲</button>
       <div><button data-key="ArrowLeft">◀</button><button data-key="ArrowDown">▼</button><button data-key="ArrowRight">▶</button></div>
     </div>
-    <div class="action-pad">
-      <button id="kickMobile" class="kick">🦶<span>KICK</span></button>
-      <button id="sprintMobile" class="run">💨<span>RUN</span></button><button id="tauntBtn" class="taunt">😈<span>TAUNT</span></button>
+    <div class="actions">
+      <button id="shootMobile" class="shoot">⚽<span>SHOOT</span></button>
+      <button id="sprintMobile" class="sprint">RUN<span>SPRINT</span></button>
     </div>
   </div>
 
-  <div id="pauseOverlay" class="overlay hidden"><div class="panel"><div class="panel-emoji">⏸️</div><h1>MATCH PAUSED</h1><p>The computer is pretending this was tactical.</p><button id="resumeBtn">RESUME MATCH</button></div></div>
-  <div id="resultOverlay" class="overlay hidden"><div class="panel"><div class="panel-emoji">🧦⚽</div><h1 id="resultTitle">FULL SOCK TIME</h1><p id="resultText"></p><button id="restartBtn">PLAY AGAIN</button></div></div>
+  <div id="pauseOverlay" class="overlay hidden"><div class="panel"><h1>MATCH PAUSED</h1><p>Resume when you're ready.</p><button id="resumeBtn">RESUME</button></div></div>
+  <div id="resultOverlay" class="overlay hidden"><div class="panel"><div class="final-score"><b id="finalHome">0</b><span>-</span><b id="finalAway">0</b></div><h1 id="resultTitle">FULL TIME</h1><p id="resultText"></p><button id="restartBtn">PLAY AGAIN</button></div></div>
 </section>
 </main>
 <script type="module" src="./js/game.js"></script>
