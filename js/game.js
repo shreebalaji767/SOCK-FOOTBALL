@@ -99,6 +99,74 @@ function makeTeam(isHome){
   });
 }
 const homeTeam=makeTeam(true), awayTeam=makeTeam(false);
+
+function makeBench(isHome){
+  const shirt=isHome?home:away, shorts=isHome?homeShort:awayShort;
+  const names=isHome
+    ?['P. Deswal','H. Rana','A. Dahiya','M. Beniwal','S. Hooda']
+    :['M. Scott','B. Walker','E. Harris','N. Reed','O. Cooper'];
+  const roles=['CB','CM','LB','RM','ST'];
+  return names.map((name,i)=>{
+    const role=roles[i], attrs=playerAttributes(role);
+    return {id:12+i,name,rating:Math.round((attrs.pace+attrs.passing+attrs.shooting+attrs.control+attrs.strength)/5),
+      role,home:isHome,attributes:attrs,stamina:100,red:false,yellow:0,shots:0,passes:0,tackles:0,touches:0,goals:0,fouls:0,
+      bench:true,mesh:null,base:new THREE.Vector3(),vel:new THREE.Vector3(),speed:role==='GK'?4.5:5.4,cool:0,tackleCool:0};
+  });
+}
+const homeBench=makeBench(true), awayBench=makeBench(false);
+const subs={HOME:0,AWAY:0,max:5};
+
+function substitutionPanel(){
+  let el=document.getElementById('subPanel');
+  if(!el){
+    el=document.createElement('div');
+    el.id='subPanel';
+    el.style.cssText='position:fixed;left:14px;top:120px;z-index:22;padding:9px 11px;border:1px solid rgba(255,255,255,.2);border-radius:10px;background:rgba(0,0,0,.62);color:#fff;font:600 11px Arial;line-height:1.45;pointer-events:none;backdrop-filter:blur(5px)';
+    document.body.appendChild(el);
+  }
+  const b=homeBench.map((p,i)=>((i===0?'7':i===1?'8':i===2?'9':i===3?'0':'-')+' '+p.name+' '+p.role)).join('<br>');
+  el.innerHTML='<b>SUBSTITUTIONS '+subs.HOME+'/5</b><br>Selected: '+me.name+'<br>'+b+'<br><span style="opacity:.7">Press 7 8 9 0 -</span>';
+}
+function swapPlayerData(out,incoming){
+  const keepMesh=out.mesh, keepBase=out.base;
+  const keepId=out.id;
+  const keys=['name','rating','role','attributes','stamina','yellow','red','shots','passes','tackles','touches','goals','fouls','speed'];
+  const snapshot={};
+  keys.forEach(k=>snapshot[k]=incoming[k]);
+  keys.forEach(k=>out[k]=snapshot[k]);
+  out.mesh=keepMesh; out.base=keepBase; out.id=keepId; out.bench=false;
+  incoming.bench=true;
+}
+function substituteHome(slot){
+  if(state.phase!=='HALFTIME'&&state.phase!=='PLAY')return;
+  if(subs.HOME>=subs.max)return comment('No substitutions remaining.',true);
+  const incoming=homeBench[slot];
+  if(!incoming)return;
+  if(incoming.bench!==true)return;
+  const outgoing=me;
+  if(outgoing.role==='GK'&&incoming.role!=='GK')return comment('Goalkeeper cannot be replaced by an outfield player.',true);
+  const outgoingSnapshot={...outgoing};
+  swapPlayerData(outgoing,incoming);
+  incoming.name=outgoingSnapshot.name; incoming.role=outgoingSnapshot.role; incoming.rating=outgoingSnapshot.rating;
+  incoming.attributes=outgoingSnapshot.attributes; incoming.stamina=outgoingSnapshot.stamina;
+  incoming.bench=true;
+  subs.HOME++;
+  comment('SUBSTITUTION: '+outgoingSnapshot.name+' OFF, '+outgoing.name+' ON.',true);
+  updatePlayerCard(); substitutionPanel();
+}
+function cpuSubstitutions(){
+  if(subs.AWAY>=subs.max)return;
+  const tired=awayTeam.filter(p=>!p.red&&p.stamina<38).sort((a,b)=>a.stamina-b.stamina);
+  for(const outgoing of tired.slice(0,Math.min(2,subs.max-subs.AWAY))){
+    const incoming=awayBench.find(p=>p.bench&&p.role!== 'GK' && p.role===outgoing.role) || awayBench.find(p=>p.bench&&p.role!=='GK');
+    if(!incoming)break;
+    const snap={...outgoing};
+    swapPlayerData(outgoing,incoming);
+    incoming.name=snap.name; incoming.role=snap.role; incoming.rating=snap.rating; incoming.attributes=snap.attributes; incoming.stamina=snap.stamina; incoming.bench=true;
+    subs.AWAY++;
+  }
+}
+
 let activeIndex=9, me=homeTeam[activeIndex];
 
 function updatePlayerCard(){
@@ -605,6 +673,7 @@ function updateClock(dt){
     state.halftimeTimer-=dt;
     if(state.halftimeTimer<=0){
       resetPositions();
+      cpuSubstitutions();
       state.half=2;state.minute=45;state.seconds=0;
       homeTeam.forEach(p=>p.base.z*=-1);awayTeam.forEach(p=>p.base.z*=-1);
       state.phase='RESTART';state.restartType='KICKOFF';state.restartTeam='AWAY';state.restartSpot.set(0,.43,0);
@@ -641,6 +710,11 @@ function action(code){
   if(code==='Digit4')applyFormation(0);
   if(code==='Digit5')applyFormation(1);
   if(code==='Digit6')applyFormation(2);
+  if(code==='Digit7')substituteHome(0);
+  if(code==='Digit8')substituteHome(1);
+  if(code==='Digit9')substituteHome(2);
+  if(code==='Digit0')substituteHome(3);
+  if(code==='Minus')substituteHome(4);
 }
 function togglePause(){if(state.over)return;state.paused=!state.paused;document.getElementById('pauseOverlay').classList.toggle('hidden',!state.paused)}
 
@@ -735,7 +809,9 @@ playerCard.id='playerCard';
 playerCard.style.cssText='position:fixed;left:14px;bottom:14px;z-index:20;padding:10px 12px;min-width:220px;border:1px solid rgba(255,255,255,.22);border-radius:10px;background:rgba(0,0,0,.58);color:#fff;font:600 12px Arial;line-height:1.5;backdrop-filter:blur(5px);pointer-events:none';
 document.body.appendChild(playerCard);
 document.getElementById('statusText').textContent='KICK-OFF';
+substitutionPanel();
 applyFormation(0,false);
 setTimeout(()=>comment('Tactics: 1 Balanced · 2 Attacking · 3 Defensive · 4/5/6 Formation',true),900);
 setTimeout(()=>document.body.classList.add('ready'),500);
+setInterval(substitutionPanel,1000);
 loop();
