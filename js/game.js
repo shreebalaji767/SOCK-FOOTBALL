@@ -159,6 +159,42 @@ const tactics={
   AWAY:{name:'BALANCED',width:1,depth:1,press:1}
 };
 let tacticalMode=0;
+
+// Formation presets. The same 11 players are repositioned instantly; this keeps the
+// browser-only game lightweight while making the tactical structure visibly change.
+const formationModes=[
+  {name:'4-3-3', positions:{
+    GK:[0,22],LB:[-7,17],CB:[-2.4,18],CB2:[2.4,18],RB:[7,17],
+    LM:[-5.8,8],CM:[0,9],RM:[5.8,8],LW:[-6,-1],ST:[0,-1],RW:[6,-1]
+  }},
+  {name:'4-4-2', positions:{
+    GK:[0,22],LB:[-7,17],CB:[-2.4,18],CB2:[2.4,18],RB:[7,17],
+    LM:[-6,7],CM:[-2,7],RM:[6,7],LW:[2,7],ST:[-3,-1],RW:[3,-1]
+  }},
+  {name:'3-5-2', positions:{
+    GK:[0,22],LB:[-6,17],CB:[0,18],CB2:[6,17],RB:[-7,7],
+    LM:[-6,7],CM:[-2.2,8],RM:[6,7],LW:[2.2,8],ST:[-3,-1],RW:[3,-1]
+  }}
+];
+let formationMode=0;
+function applyFormation(index,announce=true){
+  formationMode=(index+formationModes.length)%formationModes.length;
+  const preset=formationModes[formationMode].positions;
+  const roleSlots={
+    GK:[0],LB:[1],CB:[2],CB2:[3],RB:[4],LM:[5],CM:[6],RM:[7],
+    LW:[8],ST:[9],RW:[10]
+  };
+  homeTeam.forEach((p,i)=>{
+    let key=p.role;
+    if(p.role==='CB') key=i===3?'CB2':'CB';
+    const pos=preset[key];
+    if(pos){
+      p.base.set(pos[0],0,pos[1]);
+      if(state?.phase==='RESTART'||state?.minute<1)p.mesh.position.copy(p.base);
+    }
+  });
+  if(announce)comment('Formation changed: '+formationModes[formationMode].name,true);
+}
 const tacticalModes=[
   {name:'BALANCED',width:1,depth:1,press:1},
   {name:'ATTACKING',width:1.18,depth:1.22,press:1.18},
@@ -574,6 +610,9 @@ function action(code){
   if(code==='Digit1')setTactic(0);
   if(code==='Digit2')setTactic(1);
   if(code==='Digit3')setTactic(2);
+  if(code==='Digit4')applyFormation(0);
+  if(code==='Digit5')applyFormation(1);
+  if(code==='Digit6')applyFormation(2);
 }
 function togglePause(){if(state.over)return;state.paused=!state.paused;document.getElementById('pauseOverlay').classList.toggle('hidden',!state.paused)}
 
@@ -661,6 +700,7 @@ function updateAnalytics(){
 }
 
 document.getElementById('statusText').textContent='KICK-OFF';
-setTimeout(()=>comment('Tactics: 1 Balanced · 2 Attacking · 3 Defensive',true),900);
+applyFormation(0,false);
+setTimeout(()=>comment('Tactics: 1 Balanced · 2 Attacking · 3 Defensive · 4/5/6 Formation',true),900);
 setTimeout(()=>document.body.classList.add('ready'),500);
 loop();
