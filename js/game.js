@@ -151,8 +151,45 @@ function nearestOpponentDistance(p){
  for(const q of opp)if(!q.red)best=Math.min(best,d2(p.mesh.position,q.mesh.position));
  return best;
 }
+function firstTouch(p){
+ if(!hasBall(p))return;
+ const sprint=held.has('ShiftLeft')||held.has('ShiftRight')||touchSprint;
+ const pressure=tacticalPressure(p);
+ const facing=new THREE.Vector3(Math.sin(p.mesh.rotation.y),0,Math.cos(p.mesh.rotation.y));
+ const escape=new THREE.Vector3();
+ const opponents=p.home?awayTeam:homeTeam;
+ let nearestOpp=null,best=99;
+ for(const o of opponents){if(o.red)continue;const d=d2(p.mesh.position,o.mesh.position);if(d<best){best=d;nearestOpp=o}}
+ if(nearestOpp){
+  escape.copy(p.mesh.position).sub(nearestOpp.mesh.position);escape.y=0;
+  if(escape.lengthSq()>0.01)escape.normalize();
+ }
+ const touchDir=pressure>.62?escape.lengthSq()?escape:facing:facing;
+ const touchDistance=sprint?.92:(pressure>.62?.58:.72);
+ ball.position.copy(p.mesh.position).addScaledVector(touchDir,touchDistance);ball.position.y=.43;
+ ballVel.copy(touchDir).multiplyScalar(sprint?1.4:.65);
+ controlledTouch=.22;
+ state.lastTouch=p.home?'HOME':'AWAY';
+}
+function bodyShield(p,dt){
+ if(!shielding||!hasBall(p))return;
+ const o=opponent(p);if(!o)return;
+ const away=p.mesh.position.clone().sub(o.mesh.position);away.y=0;
+ if(away.lengthSq()<.01)return;
+ away.normalize();
+ p.mesh.rotation.y=Math.atan2(away.x,away.z);
+ ball.position.lerp(p.mesh.position.clone().addScaledVector(away,.62).setY(.43),Math.min(1,dt*8));
+ p.vel.multiplyScalar(.72);
+}
+function staminaRecovery(p,dt){
+ if(!p)return;
+ const intensity=p.vel.length();
+ if(intensity<1.2)p.stamina=Math.min(100,p.stamina+8*dt);
+ else if(intensity>5.5)p.stamina=Math.max(0,p.stamina-5*dt);
+}
 function controlBall(p,dt){
  if(!hasBall(p)){ if(!claimBall(p)) return false; }
+ if(ballVel.length()>4.5&&controlledTouch<=0)firstTouch(p);
  const sprint=held.has('ShiftLeft')||held.has('ShiftRight')||touchSprint;
  const moveDir=p.vel.lengthSq()>1?p.vel.clone().normalize():new THREE.Vector3(Math.sin(p.mesh.rotation.y),0,Math.cos(p.mesh.rotation.y));
  const f=new THREE.Vector3(Math.sin(p.mesh.rotation.y),0,Math.cos(p.mesh.rotation.y));
@@ -160,7 +197,7 @@ function controlBall(p,dt){
  const desired=p.mesh.position.clone().add(touchDir.multiplyScalar(sprint?1.3:.72));desired.y=.43;
  const delta=desired.sub(ball.position);delta.y=0;
  ballVel.lerp(delta.multiplyScalar(sprint?8.5:7),Math.min(1,dt*10));
- if(shielding){const o=opponent(p);if(o&&d2(p.mesh.position,o.mesh.position)<2.4){const away=p.mesh.position.clone().sub(o.mesh.position);away.y=0;if(away.lengthSq()>0.01)ball.position.addScaledVector(away.normalize(),.18)}}
+ bodyShield(p,dt);
  ball.position.y=.43;
  controlledTouch=.12;
  state.lastTouch=p.home?'HOME':'AWAY';
@@ -224,7 +261,7 @@ function chooseBestPass(p){
 function pass(p){
  if(!hasBall(p))return;
  const loft=held.has('ShiftLeft')||held.has('ShiftRight')||touchSprint;
- const best=chooseBestPass(p);
+ let best=chooseBestPass(p);
  if(best){
   if(passingLaneBlocked(p,best,p.home?homeTeam:awayTeam)){const alternatives=(p.home?homeTeam:awayTeam).filter(q=>q!==p&&!q.red&&q.role!=='GK').sort((a,b)=>d2(a.mesh.position,ball.position)-d2(b.mesh.position,ball.position));best=alternatives.find(q=>!passingLaneBlocked(p,q,p.home?homeTeam:awayTeam))||best}
   const defenders=(p.home?awayTeam:homeTeam).filter(q=>!q.red).sort((a,b)=>p.home?b.mesh.position.z-a.mesh.position.z:a.mesh.position.z-b.mesh.position.z);
@@ -241,7 +278,7 @@ function pass(p){
    target.add(lead);
    target.y=0; kickBall(p,target.sub(ball.position),12.2,'pass'); ballVel.y=1.55; comment(p.home?'Through ball into space.':'Away plays it in behind.',true);
   }else{
-   kickBall(p,target.sub(ball.position),8.6,'pass'); comment(p.home?'Pass completed.':'Away passes.',true);
+   const distance=target.distanceTo(ball.position);const passPower=THREE.MathUtils.clamp(7.2+distance*.16,7.5,10.8);kickBall(p,target.sub(ball.position),passPower,'pass'); comment(p.home?'Pass completed.':'Away passes.',true);
   }
  }
 }
@@ -258,7 +295,7 @@ function tackle(p){
  const v=ball.position.clone().sub(p.mesh.position);v.y=0;
  if(v.lengthSq()>0.01){
   v.normalize();
-  const clean=Math.random()<.68;
+  const approach=p.vel.length()>4.5?0.08:0;const facing=new THREE.Vector3(Math.sin(p.mesh.rotation.y),0,Math.cos(p.mesh.rotation.y));const ballDir=v.clone();const angle=Math.max(0,facing.dot(ballDir));const cleanChance=THREE.MathUtils.clamp(.48+angle*.28+(pressure?0:0),.38,.82);const clean=Math.random()<cleanChance-approach;
   if(clean){
    ball.position.copy(p.mesh.position).addScaledVector(v,.72);ball.position.y=.43;
    ballVel.copy(v).multiplyScalar(1.4);state.lastTouch=p.home?'HOME':'AWAY';p.tackles++;
@@ -272,7 +309,9 @@ function tackle(p){
 function cross(p){
  if(!hasBall(p)||Math.abs(p.mesh.position.x)<7)return;
  const targetZ=goalZ(p);
- const target=new THREE.Vector3(-p.mesh.position.x*.35,0,targetZ).sub(ball.position);
+ const team=p.home?homeTeam:awayTeam;const attackers=team.filter(q=>!q.red&&q!==p&&['ST','LW','RW','LM','RM'].includes(q.role)).sort((a,b)=>Math.abs(a.mesh.position.z-targetZ)-Math.abs(b.mesh.position.z-targetZ));
+ const receiver=attackers[0];const tx=receiver?receiver.mesh.position.x:-p.mesh.position.x*.35;const tz=receiver?receiver.mesh.position.z:targetZ;
+ const target=new THREE.Vector3(tx*.65,0,tz).sub(ball.position);
  kickBall(p,target,11.8,'pass');ballVel.y=3.2;comment(p.home?'Cross into the box.':'Away sends in a cross.',true);
 }
 function slideTackle(p){
@@ -292,13 +331,24 @@ function moveUser(dt){
  const z=(held.has('KeyS')||held.has('ArrowDown'))-(held.has('KeyW')||held.has('ArrowUp'));
  const v=new THREE.Vector3(x,0,z);if(v.lengthSq())v.normalize();
  const sprint=held.has('ShiftLeft')||held.has('ShiftRight')||touchSprint;
- if(v.lengthSq())me.stamina=Math.max(0,me.stamina-(sprint?12:2.5)*dt);else me.stamina=Math.min(100,me.stamina+6*dt);
+ if(v.lengthSq())me.stamina=Math.max(0,me.stamina-(sprint?12:2.5)*dt);else me.stamina=Math.min(100,me.stamina+7*dt);
+ if(hasBall(me)&&ballVel.length()>3.5&&controlledTouch<=0)firstTouch(me);
  if(me.stamina<8&&sprint)comment('Player is exhausted.',true);
  me.vel.lerp(v.multiplyScalar(me.speed*(sprint&&me.stamina>2?1.38:1)),Math.min(1,dt*12));const fatigue=me.stamina<25?.82:me.stamina<50?.93:1;
  me.mesh.position.addScaledVector(me.vel,dt*fatigue);clampField(me);
  if(me.vel.lengthSq()>1)me.mesh.rotation.y=Math.atan2(me.vel.x,me.vel.z);
 }
 
+function looseBallRace(team,dt){
+ if(ballVel.length()>3||ball.position.y>.8)return;
+ const candidates=team.filter(p=>!p.red&&p.role!=='GK'&&p!==me);
+ let best=null,bestT=99;
+ for(const p of candidates){const d=d2(p.mesh.position,ball.position);const t=d/(p.speed*Math.max(.55,p.stamina/100));if(t<bestT){bestT=t;best=p}}
+ if(best&&bestT<2.8){
+  const v=ball.position.clone().sub(best.mesh.position);v.y=0;
+  if(v.lengthSq()>0.2){v.normalize();best.vel.lerp(v.multiplyScalar(best.speed),Math.min(1,dt*6))}
+ }
+}
 function aiTeam(team,dt){
  const nearestPlayer=nearest(team);
  team.forEach(p=>{
@@ -307,7 +357,7 @@ function aiTeam(team,dt){
   const defending=team===homeTeam ? ball.position.z>6 : ball.position.z<-6;
   const myScore=team===homeTeam?state.score[0]:state.score[1],oppScore=team===homeTeam?state.score[1]:state.score[0];
   const trailing=myScore<oppScore&&state.minute>70,leading=myScore>oppScore&&state.minute>70;
-  if(p===nearestPlayer) target.copy(ball.position);
+  if(p===nearestPlayer){target.copy(ball.position);if(bd<4){const oppOwner=nearest(team===homeTeam?awayTeam:homeTeam);if(oppOwner&&hasBall(oppOwner)){const contain=oppOwner.mesh.position.clone().sub(p.mesh.position);contain.y=0;if(contain.lengthSq()>0.1){contain.normalize();target.copy(oppOwner.mesh.position).addScaledVector(contain,-1.15)}}}}
   else if(p.role==='CB'||p.role==='LB'||p.role==='RB'){
    target.x+=THREE.MathUtils.clamp(ball.position.x*.10,-3.5,3.5);
    target.z+=team===homeTeam?THREE.MathUtils.clamp(ball.position.z*.10,-3,3):THREE.MathUtils.clamp(ball.position.z*.10,-3,3);
@@ -322,7 +372,7 @@ function aiTeam(team,dt){
   if(p.role==='GK'){target.x=THREE.MathUtils.clamp(ball.position.x,-5.5,5.5);target.z=team===homeTeam?L/2-2.2:-L/2+2.2;if(bd>18)target.copy(p.base)}
   const v=target.sub(p.mesh.position);v.y=0;if(v.lengthSq()>0.2)v.normalize();
   p.vel.lerp(v.multiplyScalar(p.speed*(p===nearestPlayer?1.08:.72)),Math.min(1,dt*5));p.mesh.position.addScaledVector(p.vel,dt);clampField(p);
-  if(p.vel.lengthSq()>1)p.mesh.rotation.y=Math.atan2(p.vel.x,p.vel.z);p.stamina=Math.min(100,p.stamina+5*dt);
+  if(p.vel.lengthSq()>1)p.mesh.rotation.y=Math.atan2(p.vel.x,p.vel.z);const pressing=state.minute>75&&(state.score[team===homeTeam?0:1]<state.score[team===homeTeam?1:0]);p.stamina=Math.min(100,p.stamina+(pressing?2.5:5)*dt);staminaRecovery(p,dt);
   if(p===nearestPlayer&&bd<3)p.stamina=Math.max(0,p.stamina-2.5*dt);
   if(p===nearestPlayer&&bd<1.5&&!state.penalty){
    if(hasBall(p))controlBall(p,dt);
@@ -373,7 +423,7 @@ function interceptAI(team,dt){
   const d=to.length();
   if(d<bestD){bestD=d;best=p}
  });
- if(best&&bestD<5.5){
+ if(best&&bestD<5.5&&best.vel.length()<6.5){
   const target=ball.position.clone().addScaledVector(ballVel,.18);target.y=0;
   const v=target.sub(best.mesh.position);v.y=0;
   if(v.lengthSq()>0.2){v.normalize();best.vel.lerp(v.multiplyScalar(best.speed*.92),Math.min(1,dt*4))}
@@ -634,7 +684,7 @@ function loop(){
    homeTeam.forEach(p=>{p.cooldown=Math.max(0,p.cooldown-dt);p.tackleCooldown=Math.max(0,p.tackleCooldown-dt)});
    awayTeam.forEach(p=>{p.cooldown=Math.max(0,p.cooldown-dt);p.tackleCooldown=Math.max(0,p.tackleCooldown-dt)});
    moveUser(dt);
-   aiTeam(homeTeam,dt);aiTeam(awayTeam,dt);
+   aiTeam(homeTeam,dt);aiTeam(awayTeam,dt);looseBallRace(homeTeam,dt);looseBallRace(awayTeam,dt);
    defensiveMarking(homeTeam,dt);defensiveMarking(awayTeam,dt);supportRuns(homeTeam,dt);supportRuns(awayTeam,dt);interceptAI(homeTeam,dt);interceptAI(awayTeam,dt);
    goalkeeperAI(homeTeam,dt);goalkeeperAI(awayTeam,dt);goalkeeperReaction(homeTeam);goalkeeperReaction(awayTeam);
    playerCollisions();
