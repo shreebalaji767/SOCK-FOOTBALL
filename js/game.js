@@ -8,7 +8,33 @@ const W=28,L=44,G=8;
 cube(W,.35,L,green,0,-.2);cube(W+.9,.25,L+.9,dark,0,-.38);
 for(let z=-L/2+2.75;z<L/2;z+=5.5)cube(W,.015,2.75,stripe,0,.01,z);
 cube(W,.035,.12,white,0,.03,-L/2);cube(W,.035,.12,white,0,.03,L/2);cube(.12,.035,L,white,-W/2,.03);cube(.12,.035,L,white,W/2,.03);cube(W,.035,.09,white,0,.03);
-const circle=new THREE.Mesh(new THREE.RingGeometry(4,4.08,64),white);circle.rotation.x=-Math.PI/2;circle.position.y=.05;scene.add(circle);
+
+function line(w,d,x,z){cube(w,.045,d,white,x,.055,z)}
+// Proper football pitch markings: halfway line, centre circle, penalty areas and goal areas.
+line(W,.12,0,0);
+const centerCircle=new THREE.Mesh(new THREE.RingGeometry(4,4.07,72),white);centerCircle.rotation.x=-Math.PI/2;centerCircle.position.y=.065;scene.add(centerCircle);
+const centerSpot=new THREE.Mesh(new THREE.CircleGeometry(.16,24),white);centerSpot.rotation.x=-Math.PI/2;centerSpot.position.set(0,.067,0);scene.add(centerSpot);
+
+for(const side of[-1,1]){
+  const goalLine=side*L/2;
+  const boxZ=goalLine-side*6.5;
+  const goalBoxZ=goalLine-side*2.5;
+  line(12,.11,0,boxZ);
+  line(.11,6.5,-6,goalLine-side*3.25);
+  line(.11,6.5,6,goalLine-side*3.25);
+  line(6,.11,0,goalBoxZ);
+  line(.11,2.5,-3,goalLine-side*1.25);
+  line(.11,2.5,3,goalLine-side*1.25);
+  const spot=new THREE.Mesh(new THREE.CircleGeometry(.16,24),white);
+  spot.rotation.x=-Math.PI/2;spot.position.set(0,.067,goalLine-side*11);scene.add(spot);
+  const arc=new THREE.Mesh(new THREE.RingGeometry(3.8,3.88,48,1,side<0?0:Math.PI,Math.PI),white);
+  arc.rotation.x=-Math.PI/2;arc.position.set(0,.067,goalLine-side*11);scene.add(arc);
+}
+// Corner quarter-circles.
+for(const x of[-W/2,W/2]) for(const z of[-L/2,L/2]){
+  const q=new THREE.Mesh(new THREE.RingGeometry(.75,.82,24,1,0,Math.PI/2),white);
+  q.rotation.x=-Math.PI/2;q.position.set(x,.067,z);scene.add(q);
+}
 function goal(z,color){cube(G,.18,.3,color,0,.15,z);for(const x of[-G/2,G/2])cube(.2,3,.2,white,x,1.5,z+(z<0?-.45:.45));cube(G,.15,.15,white,0,3,z+(z<0?-.45:.45));for(let x=-G/2;x<=G/2;x+=1)cube(.025,2.8,.025,white,x,1.5,z+(z<0?-.45:.45));}goal(-L/2,red);goal(L/2,blue);
 for(let i=0;i<14;i++){const a=i/14*Math.PI*2;cube(.5,1.4,.5,mat(0x5a4535),Math.cos(a)*22,.7,Math.sin(a)*28)}
 function sock(material){const g=new THREE.Group();const body=new THREE.Mesh(new THREE.SphereGeometry(.78,24,16),material);body.scale.set(1.3,.72,1.7);body.position.z=.15;body.castShadow=true;g.add(body);const cuff=new THREE.Mesh(new THREE.CylinderGeometry(.48,.62,1.3,20),material);cuff.position.y=.9;cuff.castShadow=true;g.add(cuff);const ring=new THREE.Mesh(new THREE.TorusGeometry(.5,.065,10,24),black);ring.rotation.x=Math.PI/2;ring.position.y=1.55;g.add(ring);for(const x of[-.2,.2]){const e=new THREE.Mesh(new THREE.SphereGeometry(.075,12,8),black);e.position.set(x,1.55,.35);g.add(e)}scene.add(g);return g}
@@ -34,4 +60,4 @@ addEventListener('keydown',e=>{if(e.code==='KeyP')togglePause();if(e.code==='Spa
 document.getElementById('pauseBtn').onclick=togglePause;document.getElementById('resumeBtn').onclick=togglePause;document.getElementById('restartBtn').onclick=()=>location.reload();
 document.querySelectorAll('[data-key]').forEach(b=>{const k=b.dataset.key;b.addEventListener('pointerdown',e=>{e.preventDefault();held.add(k)});['pointerup','pointercancel','pointerleave'].forEach(ev=>b.addEventListener(ev,()=>held.delete(k)))});document.getElementById('kickMobile').onpointerdown=()=>{if(me.mesh.position.distanceTo(ball.position)<2.45)kick(me,new THREE.Vector3((ball.position.x-me.mesh.position.x)*.35,0,-1))};canvas.addEventListener('pointerdown',()=>{if(me.mesh.position.distanceTo(ball.position)<2.45)kick(me,new THREE.Vector3((ball.position.x-me.mesh.position.x)*.35,0,-1))});document.getElementById('sprintMobile').onpointerdown=()=>touchSprint=true;document.getElementById('sprintMobile').onpointerup=()=>touchSprint=false;
 function finish(){state.over=true;document.getElementById('statusText').textContent='FULL TIME — SOCKS HAVE SURVIVED';const a=state.score[0],b=state.score[1];document.getElementById('resultTitle').textContent=a===b?'DRAW: EVERYONE IS CONFUSED':a>b?'YOU WON THE SOCK':'THE COMPUTER WON THE SOCK';document.getElementById('resultText').textContent=a===b?'The chicken has declared the universe approximately balanced.':a>b?'You defeated a computer using the same laws of physics.':'The computer has won and will now be unbearable.';document.getElementById('resultOverlay').classList.remove('hidden')}
-const clock=new THREE.Clock();function loop(){requestAnimationFrame(loop);const dt=Math.min(clock.getDelta(),.04);if(!state.paused&&!state.over){state.time=Math.max(0,state.time-dt);if(state.time===0)finish();movePlayer(dt);cpuAI(dt);ballPhysics(dt);chaos(dt);chickenRun(dt);me.zKick=Math.max(0,me.zKick-dt);cpu.zKick=Math.max(0,cpu.zKick-dt);document.getElementById('timer').textContent=Math.floor(state.time/60).toString().padStart(2,'0')+':'+Math.floor(state.time%60).toString().padStart(2,'0')}const focus=new THREE.Vector3((me.mesh.position.x+cpu.mesh.position.x)*.08,0,(me.mesh.position.z+cpu.mesh.position.z)*.05);const ballFocus=new THREE.Vector3(ball.position.x,0,ball.position.z);const actionFocus=focus.lerp(ballFocus,.58);const portrait=innerWidth<700;const camHeight=portrait?15:11;const camBack=portrait?21:17;camera.position.lerp(new THREE.Vector3(actionFocus.x,camHeight,camBack+actionFocus.z),Math.min(1,dt*2.6));camera.lookAt(actionFocus.x,0,actionFocus.z);renderer.render(scene,camera)}loop();setTimeout(()=>document.body.classList.add('ready'),900);
+const clock=new THREE.Clock();function loop(){requestAnimationFrame(loop);const dt=Math.min(clock.getDelta(),.04);if(!state.paused&&!state.over){state.time=Math.max(0,state.time-dt);if(state.time===0)finish();movePlayer(dt);cpuAI(dt);ballPhysics(dt);chaos(dt);chickenRun(dt);me.zKick=Math.max(0,me.zKick-dt);cpu.zKick=Math.max(0,cpu.zKick-dt);document.getElementById('timer').textContent=Math.floor(state.time/60).toString().padStart(2,'0')+':'+Math.floor(state.time%60).toString().padStart(2,'0')}const ballFocus=new THREE.Vector3(ball.position.x,0,ball.position.z);const portrait=innerWidth<700;const landscape=innerWidth/innerHeight>1.15;const camHeight=portrait?31:landscape?26:29;const camBack=portrait?25:landscape?22:24;const followX=THREE.MathUtils.clamp(ballFocus.x*.12,-3,3);const followZ=THREE.MathUtils.clamp(ballFocus.z*.10,-3,3);camera.position.lerp(new THREE.Vector3(followX,camHeight,camBack+followZ),Math.min(1,dt*2.4));camera.lookAt(followX,0,followZ);renderer.render(scene,camera)}loop();setTimeout(()=>document.body.classList.add('ready'),900);
