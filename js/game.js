@@ -83,6 +83,8 @@ function setActive(i){
 
 const ball=new THREE.Mesh(new THREE.SphereGeometry(.43,28,20),white);ball.position.set(0,.43,0);ball.castShadow=true;scene.add(ball);
 const ballVel=new THREE.Vector3();
+const ballSpin=new THREE.Vector3();
+let controlledTouch=0;
 const held=new Set();
 let touchSprint=false;
 const clock=new THREE.Clock();
@@ -99,18 +101,42 @@ function clampField(p){p.mesh.position.x=THREE.MathUtils.clamp(p.mesh.position.x
 function goalZ(p){return p.home?-L/2:L/2}
 function nearest(team){return team.reduce((a,b)=>d2(a.mesh.position,ball.position)<d2(b.mesh.position,ball.position)?a:b,team[0])}
 function opponent(p){return (p.home?awayTeam:homeTeam).reduce((a,b)=>d2(a.mesh.position,p.mesh.position)<d2(b.mesh.position,p.mesh.position)?a:b,(p.home?awayTeam:homeTeam)[0])}
-function hasBall(p){return d2(p.mesh.position,ball.position)<1.35&&ball.position.y<1.4}
+function hasBall(p){return d2(p.mesh.position,ball.position)<1.45&&ball.position.y<1.25&&ballVel.length()<7}
+function forwardFor(p){return new THREE.Vector3(0,0,p.home?-1:1)}
+function nearestOpponentDistance(p){
+ const opp=p.home?awayTeam:homeTeam;let best=99;
+ for(const q of opp)if(!q.red)best=Math.min(best,d2(p.mesh.position,q.mesh.position));
+ return best;
+}
+function controlBall(p,dt){
+ if(!hasBall(p))return false;
+ const sprint=held.has('ShiftLeft')||held.has('ShiftRight')||touchSprint;
+ const f=new THREE.Vector3(Math.sin(p.mesh.rotation.y),0,Math.cos(p.mesh.rotation.y));
+ const desired=p.mesh.position.clone().add(f.multiplyScalar(sprint?1.15:.78));desired.y=.43;
+ const delta=desired.sub(ball.position);delta.y=0;
+ ballVel.lerp(delta.multiplyScalar(7),Math.min(1,dt*10));
+ ball.position.y=.43;
+ controlledTouch=.12;
+ state.lastTouch=p.home?'HOME':'AWAY';
+ return true;
+}
 
 function kickBall(p,dir,power,kind){
  if(p.red||p.cooldown>0||d2(p.mesh.position,ball.position)>1.8)return false;
  dir.y=0;if(dir.lengthSq()<.01)dir.set(0,0,p.home?-1:1);dir.normalize();
  ballVel.copy(dir).multiplyScalar(power);ballVel.y=kind==='shoot'?Math.min(2.2,power*.16):Math.min(1.1,power*.08);
  p.cooldown=.25;state.lastTouch=p.home?'HOME':'AWAY';
- if(kind==='shoot')comment(p.home?'Home shoots!':'Away shoots!',true);return true;
+ if(kind==='shoot')comment(p.home?'Home shoots!':'Away shoots!',true);
+ if(kind==='pass')ballSpin.set(0,(Math.random()-.5)*1.8,0);
+ return true;
 }
 function shoot(p){
  if(!hasBall(p))return;
- const aim=new THREE.Vector3((Math.random()-.5)*2.2,0,goalZ(p)).sub(ball.position);kickBall(p,aim,15,'shoot');
+ const pressure=nearestOpponentDistance(p);
+ const side=(Math.random()-.5)*Math.max(1.2,3.0-pressure*.18);
+ const aim=new THREE.Vector3(side,0,goalZ(p)).sub(ball.position);
+ const power=pressure<2.2?13.5:16.5;
+ kickBall(p,aim,power,'shoot');
 }
 function pass(p){
  if(!hasBall(p))return;
@@ -144,7 +170,8 @@ function moveUser(dt){
  const z=(held.has('KeyS')||held.has('ArrowDown'))-(held.has('KeyW')||held.has('ArrowUp'));
  const v=new THREE.Vector3(x,0,z);if(v.lengthSq())v.normalize();
  const sprint=held.has('ShiftLeft')||held.has('ShiftRight')||touchSprint;
- if(v.lengthSq())me.stamina=Math.max(0,me.stamina-(sprint?10:3)*dt);else me.stamina=Math.min(100,me.stamina+7*dt);
+ if(v.lengthSq())me.stamina=Math.max(0,me.stamina-(sprint?12:2.5)*dt);else me.stamina=Math.min(100,me.stamina+6*dt);
+ if(me.stamina<8&&sprint)comment('Player is exhausted.',true);
  me.vel.lerp(v.multiplyScalar(me.speed*(sprint&&me.stamina>2?1.38:1)),Math.min(1,dt*12));me.mesh.position.addScaledVector(me.vel,dt);clampField(me);
  if(me.vel.lengthSq()>1)me.mesh.rotation.y=Math.atan2(me.vel.x,me.vel.z);
 }
@@ -160,7 +187,14 @@ function aiTeam(team,dt){
   const v=target.sub(p.mesh.position);v.y=0;if(v.lengthSq()>0.2)v.normalize();
   p.vel.lerp(v.multiplyScalar(p.speed*(p===nearestPlayer?1.08:.72)),Math.min(1,dt*5));p.mesh.position.addScaledVector(p.vel,dt);clampField(p);
   if(p.vel.lengthSq()>1)p.mesh.rotation.y=Math.atan2(p.vel.x,p.vel.z);p.stamina=Math.min(100,p.stamina+5*dt);
-  if(p===nearestPlayer&&bd<1.45&&!state.penalty){if(Math.abs(p.mesh.position.z-goalZ(p))<18&&Math.random()<.035)shoot(p);else if(Math.random()<.04)pass(p);else if(Math.random()<.06)kickBall(p,new THREE.Vector3((Math.random()-.5)*1.5,0,p.home?-1:1),8,'kick')}
+  if(p===nearestPlayer&&bd<1.5&&!state.penalty){
+   if(hasBall(p))controlBall(p,dt);
+   const nearGoal=Math.abs(p.mesh.position.z-goalZ(p))<17;
+   const pressure=nearestOpponentDistance(p);
+   if(nearGoal&&Math.random()<.045)shoot(p);
+   else if(pressure<2.4&&Math.random()<.12)pass(p);
+   else if(Math.random()<.018)pass(p);
+  }
  });
 }
 
@@ -197,8 +231,36 @@ function scoreGoal(team){
  state.score[team==='HOME'?0:1]++;scoreUI();state.messageTimer=1.3;comment('GOAL! '+(team==='HOME'?'Home':'Away')+' scores.',true);
  document.getElementById('statusText').textContent='GOAL';state.restartTeam=team==='HOME'?'AWAY':'HOME';state.restartType='KICKOFF';state.kickoff=true;resetTeams();ball.position.set(0,.43,0);ballVel.set(0,0,0);
 }
+function goalkeeperAI(team,dt){
+ const g=team.find(p=>p.role==='GK'&&!p.red);if(!g)return;
+ const danger=Math.abs(ball.position.z-goalZ(g))<9&&Math.abs(ball.position.x)<7;
+ if(!danger)return;
+ const targetX=THREE.MathUtils.clamp(ball.position.x,-6,6);
+ g.mesh.position.x=THREE.MathUtils.lerp(g.mesh.position.x,targetX,Math.min(1,dt*5));
+ const homeGoal=team===homeTeam?L/2:-L/2;
+ g.mesh.position.z=THREE.MathUtils.lerp(g.mesh.position.z,homeGoal+(team===homeTeam?-1.8:1.8),Math.min(1,dt*5));
+ if(d2(g.mesh.position,ball.position)<2.0&&ball.position.y<2.7){
+   const clear=new THREE.Vector3((Math.random()-.5)*.6,0,team===homeTeam?-1:1);
+   ballVel.copy(clear.normalize().multiplyScalar(10));
+   state.lastTouch=team===homeTeam?'HOME':'AWAY';
+   comment(team===homeTeam?'Great save by the goalkeeper!':'Goalkeeper makes the save!',true);
+ }
+}
+
+function playerCollisions(){
+ const all=[...homeTeam,...awayTeam].filter(p=>!p.red);
+ for(let i=0;i<all.length;i++)for(let j=i+1;j<all.length;j++){
+  const a=all[i],b=all[j],dx=a.mesh.position.x-b.mesh.position.x,dz=a.mesh.position.z-b.mesh.position.z,d=Math.hypot(dx,dz);
+  if(d>0&&d<1.0){const push=(1-d)/2; a.mesh.position.x+=dx/d*push;a.mesh.position.z+=dz/d*push;b.mesh.position.x-=dx/d*push;b.mesh.position.z-=dz/d*push;clampField(a);clampField(b)}
+ }
+}
+
 function ballPhysics(dt){
- ball.position.addScaledVector(ballVel,dt);ballVel.multiplyScalar(Math.pow(.16,dt));
+ ball.position.addScaledVector(ballVel,dt);
+ ballVel.multiplyScalar(Math.pow(.34,dt));
+ if(controlledTouch>0)controlledTouch-=dt;
+ if(Math.abs(ballVel.x)+Math.abs(ballVel.z)<.15)ballVel.multiplyScalar(.5);
+ ball.rotation.x+=ballVel.z*dt;ball.rotation.z-=ballVel.x*dt;
  if(ball.position.y>.43){ball.position.y+=ballVel.y*dt;ballVel.y-=16*dt;if(ball.position.y<.43){ball.position.y=.43;ballVel.y*=-.28}}else ball.position.y=.43;
  if(Math.abs(ball.position.x)>W/2+.15||Math.abs(ball.position.z)>L/2+.15){if(outOfPlay())return}
  for(const team of[homeTeam,awayTeam])for(const p of team){
@@ -246,12 +308,17 @@ function loop(){
    updateClock(dt);
    homeTeam.forEach(p=>{p.cooldown=Math.max(0,p.cooldown-dt);p.tackleCooldown=Math.max(0,p.tackleCooldown-dt)});
    awayTeam.forEach(p=>{p.cooldown=Math.max(0,p.cooldown-dt);p.tackleCooldown=Math.max(0,p.tackleCooldown-dt)});
-   moveUser(dt);aiTeam(homeTeam,dt);aiTeam(awayTeam,dt);ballPhysics(dt);
+   moveUser(dt);
+   aiTeam(homeTeam,dt);aiTeam(awayTeam,dt);
+   goalkeeperAI(homeTeam,dt);goalkeeperAI(awayTeam,dt);
+   playerCollisions();
+   ballPhysics(dt);
   }
   if(state.messageTimer>0)state.messageTimer-=dt;
   if(!state.kickoff&&state.messageTimer<=0)document.getElementById('statusText').textContent='HOME '+me.role+' #'+me.number;
  }
- const focus=ball.position,landscape=innerWidth/innerHeight>1.15,portrait=innerWidth<700;
+ const activePos=me.mesh.position.clone();activePos.y=0;
+ const focus=ball.position.clone().lerp(activePos,.22),landscape=innerWidth/innerHeight>1.15,portrait=innerWidth<700;
  const camY=portrait?34:landscape?29:32,camZ=portrait?27:landscape?25:28;
  camera.position.lerp(new THREE.Vector3(focus.x*.1,camY,camZ+focus.z*.08),Math.min(1,dt*2.2));camera.lookAt(focus.x*.1,0,focus.z*.08);
  renderer.render(scene,camera);
