@@ -159,7 +159,7 @@ function dribble(p,dt){
   const pressure=nearestOppDistance(p);
   const sprint=(held.has('ShiftLeft')||held.has('ShiftRight')||mobileSprint)&&p.stamina>3;
   let dir=p.vel.length()>1?p.vel.clone().normalize():f;
-  if(shielding&&pressure<2.2){dir.copy(p.mesh.position).sub(oppTeam(p).find(q=>d2(q.mesh.position,p.mesh.position)===pressure)?.mesh.position||p.mesh.position);dir.y=0;if(dir.lengthSq()>0)dir.normalize();}
+  if(shielding&&pressure<2.2){const nearestOpponent=oppTeam(p).filter(q=>!q.red).sort((a,b)=>d2(a.mesh.position,p.mesh.position)-d2(b.mesh.position,p.mesh.position))[0]; dir.copy(p.mesh.position).sub(nearestOpponent?.mesh.position||p.mesh.position);dir.y=0;if(dir.lengthSq()>0)dir.normalize();}
   const offset=sprint?1.0:.68;
   ball.position.copy(p.mesh.position).addScaledVector(dir,offset); ball.position.y=.43;
   ballVel.lerp(dir.multiplyScalar(sprint?1.2:.55),Math.min(1,dt*10));
@@ -411,7 +411,7 @@ function restart(){
 
 function switchPlayer(){
   const candidates=homeTeam.map((p,i)=>({p,i})).filter(x=>!x.p.red&&x.p!==me);
-  candidates.sort((a,b)=>(d2(a.p.mesh.position,ball.position)-d2(b.p.mesh.position,ball.position))-(d2(a.p.mesh.position,ball.position)-d2(a.p.mesh.position,ball.position)));
+  candidates.sort((a,b)=>d2(a.p.mesh.position,ball.position)-d2(b.p.mesh.position,ball.position));
   if(candidates[0])setActive(candidates[0].i);
   comment('Player switched.',true);
 }
@@ -428,7 +428,7 @@ function updateReferee(dt){
 
 function updateClock(dt){
   // 1 real second = 1 match second, so a full match is genuinely 90 minutes in-game.
-  state.seconds+=dt;
+  state.seconds+=dt*6;
   if(state.seconds>=60){state.seconds-=60;state.minute++}
   if(state.minute===45&&state.half===1){
     state.halfStoppage=Math.min(6,Math.ceil(state.messageTimer+.5)); state.phase='HALFTIME';
