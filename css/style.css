@@ -44,3 +44,4 @@ body.ready .loading{display:none}
 @media(min-width:851px) and (max-height:620px){.topbar{height:58px}.game-view{inset:58px 0 0}.commentary{bottom:9px}.desktop-controls{bottom:9px}}
 
 .combo{color:#ffd54a;font-weight:900;margin-left:auto;text-shadow:0 0 12px rgba(255,213,74,.65);animation:comboPop .35s ease-out}@keyframes comboPop{from{transform:scale(1.35);opacity:.2}to{transform:scale(1);opacity:1}}
+.taunt{border:2px solid #ff5b5b!important;background:rgba(255,55,55,.2)!important;color:#fff!important;box-shadow:0 0 18px rgba(255,55,55,.2)}.taunt span{font-size:.65rem;font-weight:900;display:block}.taunt:active{transform:scale(.92)}@media(min-width:851px){.taunt{display:none!important}}
