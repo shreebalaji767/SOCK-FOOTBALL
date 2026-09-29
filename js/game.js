@@ -59,6 +59,36 @@ function createPlayer(shirt,shorts,number,keeper){
  scene.add(g);return {group:g,label:sprite};
 }
 
+
+// Match officials
+const officials=[];
+function createOfficial(x,z,side){
+ const g=new THREE.Group();
+ const shirt=mat(side==='REF'?0x222222:0xf0f0f0);
+ const body=new THREE.Mesh(new THREE.CylinderGeometry(.42,.5,.9,14),shirt);body.position.y=1.55;g.add(body);
+ const head=new THREE.Mesh(new THREE.SphereGeometry(.3,14,10),skin);head.position.y=2.18;g.add(head);
+ const legMat=mat(0x171717);
+ for(const lx of[-.18,.18]){const leg=new THREE.Mesh(new THREE.CylinderGeometry(.11,.13,.65,10),legMat);leg.position.set(lx,.65,0);g.add(leg)}
+ g.position.set(x,0,z);scene.add(g);return {group:g,side};
+}
+const referee=createOfficial(0,0,'REF');
+officials.push(referee);
+const assistantA=createOfficial(-W/2-1,0,'AR');
+const assistantB=createOfficial(W/2+1,0,'AR');
+officials.push(assistantA,assistantB);
+function updateOfficials(dt){
+ const target=ball.position.clone();
+ const rv=new THREE.Vector3(
+   THREE.MathUtils.clamp(target.x*.45,-W/2+2,W/2-2),
+   0,
+   THREE.MathUtils.clamp(target.z*.45,-L/2+3,L/2-3)
+ );
+ referee.group.position.lerp(rv,Math.min(1,dt*2.8));
+ referee.group.rotation.y=Math.atan2(ball.position.x-referee.group.position.x,ball.position.z-referee.group.position.z);
+ const az=THREE.MathUtils.clamp(ball.position.z,-L/2+1,L/2-1);
+ assistantA.group.position.z=az; assistantB.group.position.z=az;
+}
+
 const formation=[
  {x:0,z:22,role:'GK'},{x:-7,z:17,role:'LB'},{x:-2.4,z:18,role:'CB'},{x:2.4,z:18,role:'CB'},{x:7,z:17,role:'RB'},
  {x:-6,z:8,role:'LM'},{x:0,z:9,role:'CM'},{x:6,z:8,role:'RM'},
@@ -151,12 +181,38 @@ function shoot(p){
  const power=pressure<2.2?13.5:16.5;
  kickBall(p,aim,power,'shoot');
 }
+function tacticalPressure(p){
+ const opp=p.home?awayTeam:homeTeam;
+ let pressure=0;
+ for(const q of opp){
+  if(q.red)continue;
+  const d=d2(p.mesh.position,q.mesh.position);
+  if(d<5)pressure+=Math.max(0,1-d/5);
+ }
+ return Math.min(1,pressure);
+}
+function chooseBestPass(p){
+ const team=p.home?homeTeam:awayTeam;
+ const facing=new THREE.Vector3(Math.sin(p.mesh.rotation.y),0,Math.cos(p.mesh.rotation.y));
+ let best=null,bestScore=-Infinity;
+ for(const q of team){
+  if(q===p||q.red)continue;
+  const v=q.mesh.position.clone().sub(p.mesh.position);v.y=0;
+  const d=v.length();if(d<2||d>20)continue;
+  const dir=v.clone().normalize();
+  const forward=dir.dot(facing);
+  const space=1-Math.min(1,nearestOpponentDistance(q)/5);
+  const central=1-Math.min(1,Math.abs(q.mesh.position.x)/16);
+  const score=forward*2.2+space*3+central*.8-d*.035;
+  if(score>bestScore){bestScore=score;best=q}
+ }
+ return best;
+}
+
 function pass(p){
  if(!hasBall(p))return;
  const loft=held.has('ShiftLeft')||held.has('ShiftRight')||touchSprint;
- const team=p.home?homeTeam:awayTeam;let best=null,bs=-999;
- const facing=new THREE.Vector3(Math.sin(p.mesh.rotation.y),0,Math.cos(p.mesh.rotation.y));
- for(const q of team){if(q===p||q.red)continue;const v=q.mesh.position.clone().sub(p.mesh.position);v.y=0;const d=v.length();if(d<2||d>18)continue;const s=v.normalize().dot(facing)*8-d*.12;if(s>bs){bs=s;best=q}}
+ const best=chooseBestPass(p);
  if(best){
   const defenders=(p.home?awayTeam:homeTeam).filter(q=>!q.red).sort((a,b)=>p.home?b.mesh.position.z-a.mesh.position.z:a.mesh.position.z-b.mesh.position.z);
   const second=defenders[1]||defenders[0];
@@ -234,10 +290,27 @@ function aiTeam(team,dt){
    if(hasBall(p))controlBall(p,dt);
    const nearGoal=Math.abs(p.mesh.position.z-goalZ(p))<17;
    const pressure=nearestOpponentDistance(p);
-   if(nearGoal&&Math.random()<.045)shoot(p);
-   else if(pressure<2.4&&Math.random()<.12)pass(p);
-   else if(Math.random()<.018)pass(p);
+   const pressureLevel=tacticalPressure(p);
+   if(nearGoal&&pressureLevel<.72&&Math.random()<.09)shoot(p);
+   else if(pressureLevel>.48&&Math.random()<.18)pass(p);
+   else if(!nearGoal&&Math.random()<.025)pass(p);
   }
+ });
+}
+
+function defensiveMarking(team,dt){
+ const opp=team===homeTeam?awayTeam:homeTeam;
+ const defenders=team.filter(p=>!p.red&&['GK','CB','LB','RB'].includes(p.role));
+ const attackers=opp.filter(p=>!p.red&&['ST','LW','RW','LM','RM'].includes(p.role));
+ defenders.forEach((d,i)=>{
+  if(d===nearest(team)||d.role==='GK')return;
+  const target=attackers[i%Math.max(1,attackers.length)];
+  if(!target)return;
+  const mark=target.mesh.position.clone().sub(target.mesh.position.clone().sub(d.mesh.position).normalize().multiplyScalar(1.8));
+  mark.y=0;
+  const v=mark.sub(d.mesh.position);v.y=0;
+  if(v.lengthSq()>1)v.normalize();
+  d.vel.lerp(v.multiplyScalar(d.speed*.5),Math.min(1,dt*2));
  });
 }
 
@@ -395,10 +468,12 @@ function loop(){
    awayTeam.forEach(p=>{p.cooldown=Math.max(0,p.cooldown-dt);p.tackleCooldown=Math.max(0,p.tackleCooldown-dt)});
    moveUser(dt);
    aiTeam(homeTeam,dt);aiTeam(awayTeam,dt);
+   defensiveMarking(homeTeam,dt);defensiveMarking(awayTeam,dt);
    goalkeeperAI(homeTeam,dt);goalkeeperAI(awayTeam,dt);
    playerCollisions();
    aerialContact();
    animatePlayers(dt);
+   updateOfficials(dt);
    ballPhysics(dt);
   }
   if(state.messageTimer>0)state.messageTimer-=dt;
