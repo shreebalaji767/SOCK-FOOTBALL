@@ -89,7 +89,7 @@ function makeTeam(isHome){
     const base=new THREE.Vector3(f[0],0,isHome?f[1]:-f[1]);
     const v=playerVisual(shirt,shorts,i+1,f[2]==='GK');
     return {id:i+1,role:f[2],home:isHome,base,mesh:v.group,label:v.label,vel:new THREE.Vector3(),
-      speed:f[2]==='GK'?4.5:5.4,stamina:100,cool:0,tackleCool:0,yellow:0,red:false,
+      speed:f[2]==='GK'?4.5:5.4,stamina:100,cool:0,tackleCool:0,yellow:0,red:false,attributes:playerAttributes(f[2]),
       shots:0,passes:0,tackles:0,touches:0,goals:0};
   });
 }
@@ -109,8 +109,40 @@ function setActive(i){
 const ball=new THREE.Mesh(new THREE.SphereGeometry(.43,28,20),white);
 ball.position.set(0,.43,0); ball.castShadow=true; scene.add(ball);
 const ballVel=new THREE.Vector3();
+const ballSpin=new THREE.Vector3();
 let ballOwner=null;
 let touchGrace=0;
+
+// --- MATCH ENGINE UPGRADE: player attributes + ball curve + first-touch quality ---
+function playerAttributes(role){
+  const map={
+    GK:{pace:72,passing:58,shooting:35,control:62,strength:82},
+    LB:{pace:80,passing:72,shooting:42,control:70,strength:68},
+    CB:{pace:68,passing:66,shooting:30,control:58,strength:86},
+    RB:{pace:80,passing:72,shooting:42,control:70,strength:68},
+    LM:{pace:82,passing:78,shooting:58,control:82,strength:62},
+    CM:{pace:74,passing:86,shooting:62,control:88,strength:70},
+    RM:{pace:82,passing:78,shooting:58,control:82,strength:62},
+    LW:{pace:90,passing:76,shooting:78,control:90,strength:55},
+    ST:{pace:84,passing:68,shooting:91,control:86,strength:80},
+    RW:{pace:90,passing:76,shooting:78,control:90,strength:55}
+  };
+  return {...map[role]};
+}
+function firstTouch(p){
+  const a=p.attributes;
+  const pressure=nearestOppDistance(p);
+  const quality=THREE.MathUtils.clamp((a.control/100)*(.65+.35*Math.min(1,pressure/3))*(p.stamina<30?.86:1),.28,.98);
+  if(Math.random()>quality){
+    releaseBall();
+    const loose=new THREE.Vector3((Math.random()-.5)*2,0,(Math.random()-.5)*2).normalize();
+    ball.position.addScaledVector(loose,.35);
+    ballVel.copy(loose).multiplyScalar(1.4);
+    comment('Heavy touch!',true);
+    return false;
+  }
+  return true;
+}
 
 const state={
   half:1, minute:0, seconds:0, score:[0,0], paused:false, over:false,
@@ -214,18 +246,25 @@ function kick(p,target,power,loft=0){
   if(p.red||p.cool>0||d2(p.mesh.position,ball.position)>1.8)return false;
   const dir=target.clone().sub(ball.position); dir.y=0;
   if(dir.lengthSq()<.01)dir.set(0,0,attackDir(p));
-  dir.normalize(); ballOwner=null; ballVel.copy(dir).multiplyScalar(power); ballVel.y=loft;
+  dir.normalize();
+  const technique=THREE.MathUtils.clamp(p.attributes.passing/85,.62,1.08);
+  ballOwner=null;
+  ballVel.copy(dir).multiplyScalar(power*technique);
+  ballVel.y=loft;
+  ballSpin.set((p.mesh.position.x-ball.position.x)*.025,0,(Math.random()-.5)*.12);
   p.cool=.22; state.lastTouch=p.home?'HOME':'AWAY'; touchGrace=.2; return true;
 }
 
 function shoot(p){
   if(!hasControl(p))return;
+  if(p.attributes.shooting<45){comment('Weak shooting ability.',true);return;}
   if(p.stamina<8){comment('Too tired to strike cleanly.',true);return;}
   const fatigueError=p.stamina<30?1.9:p.stamina<55?1.45:1.2;
   const targetX=THREE.MathUtils.clamp(-p.mesh.position.x*.08+(Math.random()-.5)*fatigueError,-GOAL_W/2+.5,GOAL_W/2-.5);
   const target=new THREE.Vector3(targetX,0,goalZ(p));
   const dist=Math.abs(p.mesh.position.z-goalZ(p));
-  const power=(dist>22?17:dist>14?15.5:13.5)*(p.stamina<25?.9:p.stamina<45?.96:1);
+  const accuracy=p.attributes.shooting/90;
+  const power=(dist>22?17:dist>14?15.5:13.5)*(p.stamina<25?.9:p.stamina<45?.96:1)*(.88+.12*accuracy);
   if(kick(p,target,power,dist>18?1.0:.35)){p.shots++;comment(p.home?'SHOT!':'Away shoots!',true)}
 }
 function pass(p,through=false){
@@ -250,7 +289,7 @@ function pass(p,through=false){
   }
   const target=best.mesh.position.clone();
   if(through)target.add(best.vel.clone().multiplyScalar(.8));
-  const power=THREE.MathUtils.clamp(7+target.distanceTo(p.mesh.position)*.18,7.5,11.5)*(p.stamina<25?.9:1);
+  const power=THREE.MathUtils.clamp(7+target.distanceTo(p.mesh.position)*.18,7.5,11.5)*(p.stamina<25?.9:1)*(p.attributes.passing/85);
   if(kick(p,target,power,through?1.0:0)){p.passes++;comment(through?'Through ball.':'Pass.',true)}
 }
 function cross(p){
@@ -401,6 +440,11 @@ function ballPhysics(dt){
   }else{
     ball.position.addScaledVector(ballVel,dt);
     ballVel.multiplyScalar(Math.pow(ball.position.y>.55?.78:.36,dt));
+    if(ballVel.length()>0.1){
+      const curve=new THREE.Vector3(-ballVel.z,0,ballVel.x).normalize().multiplyScalar(ballSpin.y*.7*dt);
+      ballVel.add(curve);
+      ballSpin.multiplyScalar(.985);
+    }
     if(ball.position.y>.43){ball.position.y+=ballVel.y*dt;ballVel.y-=16*dt;if(ball.position.y<.43){ball.position.y=.43;ballVel.y*=-.28}}
     else ball.position.y=.43;
   }
@@ -413,7 +457,7 @@ function ballPhysics(dt){
       const reach=p.role==='GK'?1.45:1.18;
       if(d2(p.mesh.position,ball.position)<reach&&ballVel.length()<8){
         if(p.role==='GK'&&Math.abs(p.mesh.position.z)<HALF-7)continue;
-        ballOwner=p;state.lastTouch=p.home?'HOME':'AWAY';p.touches++;break;
+        ballOwner=p;state.lastTouch=p.home?'HOME':'AWAY';p.touches++;firstTouch(p);break;
       }
     }
   }
@@ -430,7 +474,7 @@ function goal(team){
 }
 
 function resetPositions(){
-  ballOwner=null;ball.position.set(0,.43,0);ballVel.set(0,0,0);
+  ballOwner=null;ball.position.set(0,.43,0);ballVel.set(0,0,0);ballSpin.set(0,0,0);
   homeTeam.forEach(p=>{if(!p.red){p.mesh.visible=true;p.mesh.position.copy(p.base);p.vel.set(0,0,0)}});
   awayTeam.forEach(p=>{if(!p.red){p.mesh.visible=true;p.mesh.position.copy(p.base);p.vel.set(0,0,0)}});
   setActive(activeIndex);
@@ -458,9 +502,10 @@ function handleOut(){
 function restart(){
   if(state.restartTimer>0)return;
   const team=state.restartTeam==='HOME'?homeTeam:awayTeam;
-  const taker=state.restartType==='PENALTY'?state.penaltyShooter:(team.find(p=>p.role==='GK'&&!p.red)||nearest(team));
+  const rolePriority=state.restartType==='GOAL KICK'?['GK']:state.restartType==='CORNER'?['LM','RM','LW','RW']:state.restartType==='PENALTY'?['ST','LW','RW']:['CM','LM','RM','LB','RB','CB','ST'];
+  const taker=state.restartType==='PENALTY'?state.penaltyShooter:(team.filter(p=>!p.red&&rolePriority.includes(p.role)).sort((a,b)=>b.attributes.passing-a.attributes.passing)[0]||nearest(team));
   if(!taker)return;
-  ballOwner=null;ball.position.copy(state.restartSpot);ball.position.y=.43;ballVel.set(0,0,0);
+  ballOwner=null;ball.position.copy(state.restartSpot);ball.position.y=.43;ballVel.set(0,0,0);ballSpin.set(0,0,0);
   if(state.restartType==='KICKOFF'){taker.mesh.position.set(0,0,state.restartTeam==='HOME'?1.0:-1.0);kick(taker,new THREE.Vector3(0,0,attackDir(taker)*20),6.8,0);state.phase='PLAY';state.restartTimer=0;comment('Kick-off. Match on!',true);return}
   if(state.restartType==='THROW-IN'){taker.mesh.position.copy(state.restartSpot);const target=team.filter(p=>p!==taker&&!p.red).sort((a,b)=>d2(a.mesh.position,ball.position)-d2(b.mesh.position,ball.position))[0];if(target){ballOwner=null;ballVel.copy(target.mesh.position.clone().sub(ball.position).setY(0).normalize().multiplyScalar(7));ballVel.y=2.2}state.phase='PLAY';state.restartTimer=0;return}
   if(state.restartType==='GOAL KICK'){taker.mesh.position.copy(state.restartSpot);kick(taker,new THREE.Vector3((Math.random()-.5)*10,0,attackDir(taker)*22),12,1.8);state.phase='PLAY';state.restartTimer=0;return}
@@ -593,7 +638,7 @@ function loop(){
       state.restartTimer=Math.max(0,state.restartTimer-dt);
       if(state.restartType==='PENALTY')restart(); else restart();
     }
-    drawRadar();animatePlayers();
+    drawRadar();animatePlayers();updateAnalytics();
   }
   const focus=ball.position.clone().lerp(me.mesh.position, .25);
   const portrait=innerWidth<700, landscape=innerWidth/innerHeight>1.15;
@@ -602,6 +647,19 @@ function loop(){
   camera.lookAt(focus.x*.08,0,focus.z*.08);
   renderer.render(scene,camera);
 }
+
+// Live match analytics panel (created without changing the HTML layout)
+const analytics=document.createElement('div');
+analytics.id='analyticsPanel';
+analytics.style.cssText='position:fixed;right:14px;bottom:14px;z-index:20;padding:10px 12px;border:1px solid rgba(255,255,255,.22);border-radius:10px;background:rgba(0,0,0,.58);color:#fff;font:600 12px Arial;line-height:1.5;backdrop-filter:blur(5px);pointer-events:none';
+document.body.appendChild(analytics);
+function updateAnalytics(){
+  const h=homeTeam.reduce((a,p)=>a+p.touches,0), aw=awayTeam.reduce((a,p)=>a+p.touches,0);
+  const hs=homeTeam.reduce((a,p)=>a+p.shots,0), as=awayTeam.reduce((a,p)=>a+p.shots,0);
+  const hp=state.possession.HOME+state.possession.AWAY>0?Math.round(state.possession.HOME/(state.possession.HOME+state.possession.AWAY)*100):50;
+  analytics.innerHTML='MATCH DATA<br>POSSESSION '+hp+'% — '+(100-hp)+'%<br>SHOTS '+hs+' — '+as+'<br>TOUCHES '+h+' — '+aw+'<br>TACTIC '+tacticalModes[tacticalMode].name;
+}
+
 document.getElementById('statusText').textContent='KICK-OFF';
 setTimeout(()=>comment('Tactics: 1 Balanced · 2 Attacking · 3 Defensive',true),900);
 setTimeout(()=>document.body.classList.add('ready'),500);
