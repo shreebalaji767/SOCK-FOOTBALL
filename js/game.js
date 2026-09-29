@@ -95,7 +95,7 @@ function makeTeam(isHome){
     const rating=Math.round((attrs.pace+attrs.passing+attrs.shooting+attrs.control+attrs.strength)/5);
     return {id:i+1,name:names[i],rating,role:f[2],home:isHome,base,mesh:v.group,label:v.label,vel:new THREE.Vector3(),
       speed:f[2]==='GK'?4.5:5.4,stamina:100,cool:0,tackleCool:0,yellow:0,red:false,attributes:attrs,
-      shots:0,passes:0,tackles:0,touches:0,goals:0,fouls:0};
+      shots:0,passes:0,tackles:0,touches:0,goals:0,fouls:0,injured:false,injuryType:null,injuryTimer:0,subbedOff:false};
   });
 }
 const homeTeam=makeTeam(true), awayTeam=makeTeam(false);
@@ -110,7 +110,7 @@ function makeBench(isHome){
     const role=roles[i], attrs=playerAttributes(role);
     return {id:12+i,name,rating:Math.round((attrs.pace+attrs.passing+attrs.shooting+attrs.control+attrs.strength)/5),
       role,home:isHome,attributes:attrs,stamina:100,red:false,yellow:0,shots:0,passes:0,tackles:0,touches:0,goals:0,fouls:0,
-      bench:true,mesh:null,base:new THREE.Vector3(),vel:new THREE.Vector3(),speed:role==='GK'?4.5:5.4,cool:0,tackleCool:0};
+      bench:true,mesh:null,base:new THREE.Vector3(),vel:new THREE.Vector3(),speed:role==='GK'?4.5:5.4,cool:0,tackleCool:0,injured:false,injuryType:null,injuryTimer:0,subbedOff:false};
   });
 }
 const homeBench=makeBench(true), awayBench=makeBench(false);
@@ -138,7 +138,8 @@ function swapPlayerData(out,incoming){
   incoming.bench=true;
 }
 function substituteHome(slot){
-  if(state.phase!=='HALFTIME'&&state.phase!=='PLAY')return;
+  if(state.phase==='PLAY'){ state.pendingSub=slot; comment('Substitution requested — waiting for the next stoppage.',true); return; }
+  if(state.phase!=='HALFTIME'&&state.phase!=='RESTART')return;
   if(subs.HOME>=subs.max)return comment('No substitutions remaining.',true);
   const incoming=homeBench[slot];
   if(!incoming)return;
@@ -150,7 +151,7 @@ function substituteHome(slot){
   incoming.name=outgoingSnapshot.name; incoming.role=outgoingSnapshot.role; incoming.rating=outgoingSnapshot.rating;
   incoming.attributes=outgoingSnapshot.attributes; incoming.stamina=outgoingSnapshot.stamina;
   incoming.bench=true;
-  subs.HOME++;
+  subs.HOME++; addStoppage('subs');
   comment('SUBSTITUTION: '+outgoingSnapshot.name+' OFF, '+outgoing.name+' ON.',true);
   updatePlayerCard(); substitutionPanel();
 }
@@ -230,6 +231,8 @@ const state={
   phase:'PLAY', restartTeam:'HOME', restartType:'KICKOFF', restartSpot:new THREE.Vector3(0,.43,0), restartTimer:0,
   lastTouch:'HOME', stoppage:0, halfStoppage:0, addedShown:false, penaltyShooter:null,
   halftimeTimer:0,
+  injuryTimer:0, pendingInjury:null, pendingSub:null,
+  addedReasons:{goals:0,cards:0,subs:0,injuries:0,restarts:0},
   possession:{HOME:0,AWAY:0}, lastComment:0, messageTimer:0,
   stats:{HOME:{shots:0,shotsOn:0,passes:0,tackles:0,fouls:0,corners:0,offsides:0,yellows:0},
          AWAY:{shots:0,shotsOn:0,passes:0,tackles:0,fouls:0,corners:0,offsides:0,yellows:0}}
@@ -322,6 +325,78 @@ function comment(t,force=false){
   const now=performance.now();
   if(!force&&now-state.lastComment<700)return;
   state.lastComment=now; document.getElementById('commentaryText').textContent=t;
+}
+function addStoppage(reason,count=1){
+  if(state.addedReasons[reason]!==undefined) state.addedReasons[reason]+=count;
+}
+function calculatedAddedTime(){
+  const r=state.addedReasons;
+  return THREE.MathUtils.clamp(Math.ceil(1+r.goals*.18+r.cards*.16+r.subs*.35+r.injuries*.75+r.restarts*.04),1,7);
+}
+function triggerInjury(p,severity='contact'){
+  if(!p||p.red||p.subbedOff||p.injured)return false;
+  const fatigue=p.stamina<28?.008:p.stamina<50?.004:.0022;
+  const chance=severity==='contact'?.0045:fatigue;
+  if(Math.random()>chance)return false;
+  p.injured=true;
+  p.injuryType=p.stamina<28?'muscle issue':(severity==='contact'?'knock':'fatigue');
+  p.injuryTimer=2.2;
+  p.vel.set(0,0,0);
+  releaseBall();
+  state.pendingInjury=p;
+  state.injuryTimer=2.2;
+  state.phase='INJURY';
+  addStoppage('injuries');
+  comment('INJURY — '+p.name+' is down. Medical staff on.',true);
+  return true;
+}
+function forceInjurySubstitution(p){
+  if(!p)return;
+  const bench=p.home?homeBench:awayBench;
+  const team=p.home?homeTeam:awayTeam;
+  if(subs[p.home?'HOME':'AWAY']>=subs.max){
+    p.injured=true; p.mesh.visible=true; p.vel.set(0,0,0);
+    comment(p.name+' will continue despite the knock.',true);
+    return;
+  }
+  const incoming=bench.find(q=>q.bench&&q.role===p.role&&!q.red) || bench.find(q=>q.bench&&q.role!=='GK'&&!q.red);
+  if(!incoming){comment(p.name+' receives treatment and stays on.',true);return;}
+  const snap={...p};
+  swapPlayerData(p,incoming);
+  incoming.name=snap.name; incoming.role=snap.role; incoming.rating=snap.rating; incoming.attributes=snap.attributes;
+  incoming.stamina=snap.stamina; incoming.injured=true; incoming.subbedOff=true; incoming.bench=true;
+  p.injured=false; p.injuryType=null; p.injuryTimer=0; p.subbedOff=false;
+  subs[p.home?'HOME':'AWAY']++;
+  addStoppage('subs');
+  comment('SUBSTITUTION: '+snap.name+' OFF injured, '+p.name+' ON.',true);
+  if(p.home){ setActive(homeTeam.indexOf(p)); updatePlayerCard(); }
+  substitutionPanel();
+}
+function updateInjuries(dt){
+  if(state.phase!=='INJURY')return;
+  state.injuryTimer=Math.max(0,state.injuryTimer-dt);
+  if(state.injuryTimer>0)return;
+  const p=state.pendingInjury;
+  state.pendingInjury=null;
+  forceInjurySubstitution(p);
+  if(p&&p.home&&p.injured===false) comment('Treatment complete. Play resumes.',true);
+  state.phase='PLAY';
+}
+function createHalftimePanel(){
+  let el=document.getElementById('halftimePanel');
+  if(el)return el;
+  el=document.createElement('div'); el.id='halftimePanel';
+  el.style.cssText='position:fixed;inset:50% auto auto 50%;transform:translate(-50%,-50%);z-index:40;width:min(560px,calc(100vw - 28px));padding:18px;border:1px solid rgba(255,255,255,.22);border-radius:16px;background:rgba(5,12,20,.94);color:#fff;font:600 13px Arial;box-shadow:0 20px 70px rgba(0,0,0,.45);display:none;backdrop-filter:blur(12px)';
+  el.innerHTML='<div style="font-size:22px;font-weight:800;margin-bottom:6px">HALF-TIME</div><div id="htScore" style="opacity:.75;margin-bottom:14px"></div><div style="font-size:12px;opacity:.65;margin-bottom:8px">TACTICS</div><div style="display:flex;gap:7px;flex-wrap:wrap"><button data-ht="0">4-3-3</button><button data-ht="1">4-4-2</button><button data-ht="2">3-5-2</button><button data-tac="0">BALANCED</button><button data-tac="1">ATTACKING</button><button data-tac="2">DEFENSIVE</button></div><div style="margin-top:14px;font-size:11px;opacity:.6">You can also use 4/5/6 and 1/2/3. Match restarts automatically.</div>';
+  document.body.appendChild(el);
+  el.querySelectorAll('[data-ht]').forEach(b=>b.onclick=()=>applyFormation(Number(b.dataset.ht)));
+  el.querySelectorAll('[data-tac]').forEach(b=>b.onclick=()=>setTactic(Number(b.dataset.tac)));
+  return el;
+}
+function updateHalftimePanel(){
+  const el=createHalftimePanel();
+  const show=state.phase==='HALFTIME'; el.style.display=show?'block':'none';
+  if(show)document.getElementById('htScore').textContent='HOME '+state.score[0]+' — '+state.score[1]+' AWAY · Restart in '+Math.ceil(state.halftimeTimer)+'s';
 }
 function d2(a,b){return Math.hypot(a.x-b.x,a.z-b.z)}
 function teamOf(p){return p.home?homeTeam:awayTeam}
@@ -553,7 +628,9 @@ function playerContacts(){
   const all=[...homeTeam,...awayTeam].filter(p=>!p.red);
   for(let i=0;i<all.length;i++)for(let j=i+1;j<all.length;j++){
     const a=all[i],b=all[j],dx=a.mesh.position.x-b.mesh.position.x,dz=a.mesh.position.z-b.mesh.position.z,d=Math.hypot(dx,dz);
-    if(d>0&&d<.82){const push=(.82-d)/2;a.mesh.position.x+=dx/d*push;a.mesh.position.z+=dz/d*push;b.mesh.position.x-=dx/d*push;b.mesh.position.z-=dz/d*push;clampPlayer(a);clampPlayer(b)}
+    if(d>0&&d<.82){
+      if(a.home!==b.home && (a.vel.length()+b.vel.length())>6 && Math.random()<.012) triggerInjury(Math.random()<.5?a:b,'contact');
+      const push=(.82-d)/2;a.mesh.position.x+=dx/d*push;a.mesh.position.z+=dz/d*push;b.mesh.position.x-=dx/d*push;b.mesh.position.z-=dz/d*push;clampPlayer(a);clampPlayer(b)}
   }
 }
 
@@ -591,7 +668,7 @@ function ballPhysics(dt){
 
 function goal(team){
   state.score[team==='HOME'?0:1]++; document.getElementById('playerScore').textContent=state.score[0];document.getElementById('computerScore').textContent=state.score[1];
-  comment('GOAL! '+team+' score.',true); state.messageTimer=1.4;
+  comment('GOAL! '+team+' score.',true); state.messageTimer=1.4; addStoppage('goals');
   state.restartType='KICKOFF';state.restartTeam=team==='HOME'?'AWAY':'HOME';state.restartSpot.set(0,.43,0);state.phase='RESTART';
   resetPositions();
 }
@@ -617,7 +694,7 @@ function handleOut(){
     const ballAtHomeEnd=z<0;
     const attacking=attackingHome===ballAtHomeEnd;
     if(attacking){state.restartType='GOAL KICK';state.restartTeam=attackingHome?'HOME':'AWAY';state.restartSpot.set(0,.43,ballAtHomeEnd?-HALF+5:HALF-5);comment('Goal kick.',true)}
-    else{state.restartType='CORNER';state.restartTeam=attackingHome?'HOME':'AWAY';state.stats[attackingHome?'HOME':'AWAY'].corners++;state.restartSpot.set(x<0?-FIELD_W/2+.35:FIELD_W/2-.35, .43, ballAtHomeEnd?-HALF+.35:HALF-.35);comment('Corner kick.',true)}
+    else{state.restartType='CORNER';state.restartTeam=attackingHome?'HOME':'AWAY';state.stats[attackingHome?'HOME':'AWAY'].corners++; addStoppage('restarts');state.restartSpot.set(x<0?-FIELD_W/2+.35:FIELD_W/2-.35, .43, ballAtHomeEnd?-HALF+.35:HALF-.35);comment('Corner kick.',true)}
     state.phase='RESTART';state.restartTimer=.55;
   }
 }
@@ -629,6 +706,11 @@ function restart(){
   const taker=state.restartType==='PENALTY'?state.penaltyShooter:(team.filter(p=>!p.red&&rolePriority.includes(p.role)).sort((a,b)=>b.attributes.passing-a.attributes.passing)[0]||nearest(team));
   if(!taker)return;
   ballOwner=null;ball.position.copy(state.restartSpot);ball.position.y=.43;ballVel.set(0,0,0);ballSpin.set(0,0,0);
+  if(state.pendingSub!==null && state.restartType!=='KICKOFF' && state.phase==='RESTART'){
+    const slot=state.pendingSub; state.pendingSub=null;
+    substituteHome(slot);
+    if(state.phase==='RESTART'){};
+  }
   if(state.restartType==='KICKOFF'){taker.mesh.position.set(0,0,state.restartTeam==='HOME'?1.0:-1.0);kick(taker,new THREE.Vector3(0,0,attackDir(taker)*20),6.8,0);state.phase='PLAY';state.restartTimer=0;comment('Kick-off. Match on!',true);return}
   if(state.restartType==='THROW-IN'){taker.mesh.position.copy(state.restartSpot);const target=team.filter(p=>p!==taker&&!p.red).sort((a,b)=>d2(a.mesh.position,ball.position)-d2(b.mesh.position,ball.position))[0];if(target){ballOwner=null;ballVel.copy(target.mesh.position.clone().sub(ball.position).setY(0).normalize().multiplyScalar(7));ballVel.y=2.2}state.phase='PLAY';state.restartTimer=0;return}
   if(state.restartType==='GOAL KICK'){taker.mesh.position.copy(state.restartSpot);kick(taker,new THREE.Vector3((Math.random()-.5)*10,0,attackDir(taker)*22),12,1.8);state.phase='PLAY';state.restartTimer=0;return}
@@ -681,12 +763,13 @@ function updateClock(dt){
     }
   }
   if(state.half===2&&state.minute===90&&!state.addedShown){
-    state.addedShown=true;state.stoppage=2;comment('90 minutes. +2 added minutes.',true);
+    state.addedShown=true;state.stoppage=calculatedAddedTime();comment('90 minutes. +'+state.stoppage+' added minutes.',true);
   }
   if(state.half===2&&state.minute>=90+state.stoppage){state.over=true;finish()}
   const shown=Math.min(90,state.minute);
   document.getElementById('timer').textContent=String(shown).padStart(2,'0')+':'+String(Math.floor(state.seconds)).padStart(2,'0');
   document.getElementById('halfLabel').textContent=state.half===1?'1ST HALF':'2ND HALF';
+  updateHalftimePanel();
 }
 
 function finish(){
@@ -733,6 +816,7 @@ document.getElementById('sprintMobile').onpointerup=()=>mobileSprint=false;
 document.getElementById('pauseBtn').onclick=togglePause;
 document.getElementById('resumeBtn').onclick=togglePause;
 document.getElementById('restartBtn').onclick=()=>location.reload();
+createHalftimePanel();
 canvas.addEventListener('pointerdown',e=>{if(e.target===canvas)shoot(me)});
 
 function drawRadar(){
@@ -765,7 +849,10 @@ function loop(){
   const dt=Math.min(clock.getDelta(),.05);
   if(!state.paused&&!state.over){
     if(state.phase==='HALFTIME'){
-      updateClock(dt);
+      updateClock(dt); updateHalftimePanel();
+      drawRadar();animatePlayers();updateAnalytics();
+    }else if(state.phase==='INJURY'){
+      updateInjuries(dt); updateHalftimePanel();
       drawRadar();animatePlayers();updateAnalytics();
     }else if(state.phase==='PLAY'){
       updateClock(dt);
@@ -773,6 +860,8 @@ function loop(){
       teamAI(homeTeam,dt);teamAI(awayTeam,dt);
       playerContacts();
       refereeAdvantageCheck();
+      if(state.pendingSub!==null && state.phase==='PLAY'){ /* request remains queued until a real stoppage */ }
+
       ballPhysics(dt);
       updateReferee(dt);
       if(ballOwner){const t=ballOwner.home?'HOME':'AWAY';state.possession[t]+=dt}
